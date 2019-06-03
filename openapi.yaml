@@ -1,0 +1,755 @@
+# swagger: "2.0"
+openapi: "3.0.0"
+info:
+  title: GoTerra-Deploy
+  description: GoTerra Deployment service API
+  version: 0.0.1
+  
+servers:
+  - url: http://localhost:8002
+    description: test server
+    
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-KEY
+    JWTToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    NSData:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        owners:
+          type: array
+          items:
+            type: string
+        members:
+          type: array
+          items:
+            type: string
+    Recipe:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        public:
+          type: boolean
+        namespace:
+          type: string
+        base:
+          type: string
+        parent:
+          type: string
+    Application:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        public:
+          type: boolean
+        namespace:
+          type: string
+        recipes:
+          type: array
+          items:
+            $ref: '/#/components/schema/Recipe'
+    
+paths:
+  /deploy:
+    get:
+      summary: base entry point to check service
+      description: check that service is live
+      responses:
+        '200':
+          description: service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                  message:
+                    type: string
+
+  /deploy/session/bind:
+    post:
+      security:
+        - ApiKeyAuth: []
+      summary: get a token for API calls
+      description: checks user api key and get a token for other api calls
+      responses:
+        '200':
+          description: user is authenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+        '401':
+          description: invalid api key
+  /deploy/ns:
+    get:
+      security:
+        - JWTToken: []
+      summary: list namespaces [admin]
+      description: get all created namespaces
+      responses:
+        '200':
+          description: list of namespaces
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ns:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/NSData'
+        '403':
+          description: invalid token
+    post:
+      security:
+        - JWTToken: []
+      summary: list namespaces [admin]
+      description: get all created namespaces
+      responses:
+        '201':
+          description: list of namespaces
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ns:
+                    type: string
+                    description: id of the namespace
+        '403':
+          description: invalid token
+  /deploy/ns/{id}:
+    put:
+      security:
+        - JWTToken: []
+      summary: update namespaces [owner]
+      description: update a namespace
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NSData'
+      responses:
+        '200':
+          description: updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ns:
+                    type: string
+                    description: id of the namespace
+        '403':
+          description: invalid token
+        '404':
+          description: namespace not found
+    get:
+      security:
+        - JWTToken: []
+      summary: get namespace info [owner]
+      description: get a namespace info
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+      responses:
+        '200':
+          description: namespace result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ns:
+                    $ref: '#/components/schemas/NSData'
+        '403':
+          description: invalid token
+        '404':
+          description: namespace not found
+    delete:
+      security:
+        - JWTToken: []
+      summary: delete namespace [admin]
+      description: delete a namespace
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+      responses:
+        '200':
+          description: deleted
+        '403':
+          description: invalid token
+        '404':
+          description: namespace not found
+  /deploy/ns/{id}/recipe:
+    get:
+      security:
+        - JWTToken: []
+      summary: get namespace recipes [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+      responses:
+        '200':
+          description: list of recipes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Recipe'
+        '403':
+          description: invalid token
+    post:
+      security:
+        - JWTToken: []
+      summary: create a recipe [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Recipe'
+      responses:
+        '201':
+          description: recipe created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipe:
+                    type: string
+                    description: id of the recipe
+        '403':
+          description: invalid token
+  /deploy/ns/{id}/recipe/{recipe}:
+    get:
+      security:
+        - JWTToken: []
+      summary: get a recipe [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: recipe
+          required: true
+          schema:
+            type: string
+          description: id of the recipe
+      responses:
+        '200':
+          description: recipe created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipe:
+                    $ref: '#/components/schemas/Recipe'
+        '403':
+          description: invalid token
+        '404':
+          description: recipe not found
+    put:
+      security:
+        - JWTToken: []
+      summary: update a recipe [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: recipe
+          required: true
+          schema:
+            type: string
+          description: id of the recipe
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Recipe'
+      responses:
+        '200':
+          description: recipe updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipe:
+                    type: string
+                    description: id of the recipe
+        '403':
+          description: invalid token
+    delete:
+      security:
+        - JWTToken: []
+      summary: update a recipe [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: recipe
+          required: true
+          schema:
+            type: string
+          description: id of the recipe
+      responses:
+        '200':
+          description: recipe deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipe:
+                    type: string
+                    description: id of the recipe
+        '403':
+          description: invalid token
+  /deploy/ns/{id}/app:
+    get:
+      security:
+        - JWTToken: []
+      summary: get namespace applications [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+      responses:
+        '200':
+          description: list of applications
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Application'
+        '403':
+          description: invalid token
+    post:
+      security:
+        - JWTToken: []
+      summary: create an application [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Application'
+      responses:
+        '201':
+          description: application created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: string
+                    description: id of the application
+        '403':
+          description: invalid token
+  /deploy/ns/{id}/app/{application}:
+    get:
+      security:
+        - JWTToken: []
+      summary: get namespace applications [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: application
+          required: true
+          schema:
+            type: string
+          description: id of the application
+      responses:
+        '200':
+          description: application details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    $ref: '#/components/schemas/Application'
+        '403':
+          description: invalid token
+    put:
+      security:
+        - JWTToken: []
+      summary: update application [member]
+      description: update an application
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: application
+          required: true
+          schema:
+            type: string
+          description: id of the application
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Application'
+      responses:
+        '200':
+          description: updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: string
+                    description: id of the application
+        '403':
+          description: invalid token
+        '404':
+          description: namespace not found
+    delete:
+      security:
+        - JWTToken: []
+      summary: delete application [member]
+      description: delete an application
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: application
+          required: true
+          schema:
+            type: string
+          description: id of the application
+      responses:
+        '200':
+          description: deleted
+        '403':
+          description: invalid token
+        '404':
+          description: namespace not found         
+  /deploy/app:
+    get:
+      summary: get public applications
+      responses:
+        '200':
+          description: list of applications
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Application'
+        '403':
+          description: invalid token
+  /deploy/recipe:
+    get:
+      summary: get public recipes
+      responses:
+        '200':
+          description: list of recipes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Recipe'
+        '403':
+          description: invalid token
+          
+  /deploy/ns/{id}/run/{application}:
+    post:
+      security:
+        - JWTToken: []
+      summary: run application [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: application
+          required: true
+          schema:
+            type: string
+          description: id of the application
+      responses:
+        '201':
+          description: application created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: string
+                    description: id of the execution/run
+        '403':
+          description: invalid token
+        '404':
+          description: application not found
+    get:
+      security:
+        - JWTToken: []
+      summary: get run status of application [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: application
+          required: true
+          schema:
+            type: string
+          description: id of the run
+      responses:
+        '200':
+          description: application status
+          content:
+            application/json:
+              schema:
+                type: object
+        '403':
+          description: invalid token
+        '404':
+          description: run id not found
+    delete:
+      security:
+        - JWTToken: []
+      summary: get run status of application [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: application
+          required: true
+          schema:
+            type: string
+          description: id of the run
+      responses:
+        '200':
+          description: application stop requested
+        '403':
+          description: invalid token
+        '404':
+          description: run id not found
+          
+  /deploy/ns/{id}/endpoint:
+    post:
+      security:
+        - JWTToken: []
+      summary: create endpoint [owner]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+      responses:
+        '201':
+          description: endpoint created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    type: string
+                    description: id of the endpoint
+        '403':
+          description: invalid token
+        '404':
+          description: application not found
+    get:
+      security:
+        - JWTToken: []
+      summary: get namespace endpoints [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+      responses:
+        '200':
+          description: endpoints list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  endpoints:
+                    type: array
+                    items:
+                      type: object
+        '403':
+          description: invalid token
+        '404':
+          description: namespace id not found
+  /deploy/ns/{id}/endpoint/{endpoint}:
+    get:
+      security:
+        - JWTToken: []
+      summary: get endpoint info [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: endpoint
+          required: true
+          schema:
+            type: string
+          description: id of the endpoint
+      responses:
+        '200':
+          description: endopint info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  endpoint:
+                    type: object
+        '403':
+          description: invalid token
+        '404':
+          description: run id not found
+    delete:
+      security:
+        - JWTToken: []
+      summary: get run status of application [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: endpoint
+          required: true
+          schema:
+            type: string
+          description: id of the endpoint
+      responses:
+        '200':
+          description: endpoint deleted
+        '403':
+          description: invalid token
+        '404':
+          description: endpoint id not found
