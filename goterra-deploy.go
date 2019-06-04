@@ -23,6 +23,7 @@ import (
 	mongoOptions "go.mongodb.org/mongo-driver/mongo/options"
 
 	terraDeployUtils "github.com/osallou/goterra-deploy/lib"
+	// terraDb "github.com/osallou/goterra/lib/db"
 )
 
 // Version of server
@@ -32,6 +33,8 @@ var mongoClient mongo.Client
 var userCollection *mongo.Collection
 var nsCollection *mongo.Collection
 var recipeCollection *mongo.Collection
+var appCollection *mongo.Collection
+var endpointCollection *mongo.Collection
 
 // HomeHandler manages base entrypoint
 var HomeHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -69,14 +72,18 @@ type Application struct {
 	Public      bool               `json:"public"`
 	Recipes     []string           `json:"recipes"`
 	Namespace   string             `json:"namespace"`
+	Templates   map[string]string  `json:"templates"`
+	Inputs      map[string]string  `json:"inputs"` // expected inputs
 }
 
-// TerraDeploy represents a deployment info for an app
-type TerraDeploy struct {
-	ID           primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	AppID        string             // Application id
-	Requirements map[string]interface{}
-	Credentials  map[string]interface{}
+// Run represents a deployment info for an app
+type Run struct {
+	ID        primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	AppID     string             `json:"appID"` // Application id
+	Inputs    map[string]string  `json:"inputs"`
+	Status    string             `json:"status"`
+	Endpoint  string             `json:"endpoint"`
+	Namespace string             `json:"namespace"`
 }
 
 const (
@@ -85,11 +92,13 @@ const (
 
 // EndPoint specifies a cloud endpoint data
 type EndPoint struct {
-	ID        primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	Name      string
-	Type      string // openstack, etc.
-	Namespace string
-	Info      map[string]interface{}
+	ID        primitive.ObjectID     `json:"id" bson:"_id,omitempty"`
+	Name      string                 `json:"name"`
+	Kind      string                 `json:"kind"` // openstack, etc.
+	Namespace string                 `json:"namespace"`
+	Info      map[string]interface{} `json:"info"`
+	Features  map[string]interface{} `json:"features"`
+	Inputs    map[string]string      `json:"inputs"` // expected inputs (credentials, ...)
 }
 
 // CheckAPIKey check X-API-Key authorization content and returns user info
@@ -101,7 +110,6 @@ func CheckAPIKey(apiKey string) (checkedUser terraUser.User, err error) {
 	} else {
 		var tauthErr error
 		user, tauthErr = terraUser.Check(apiKey)
-		fmt.Printf("in checkapikey %+v\n", user)
 
 		if tauthErr != nil {
 			err = errors.New("invalid api key")
@@ -156,7 +164,6 @@ func createToken(user terraUser.User) (tokenString string, err error) {
 // BindHandler gets API Key and returns a JWT Token
 var BindHandler = func(w http.ResponseWriter, r *http.Request) {
 	user, err := CheckAPIKey(r.Header.Get("X-API-Key"))
-	fmt.Printf("after checkapikey %+v", user)
 
 	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
@@ -502,7 +509,6 @@ var GetNSRecipesHandler = func(w http.ResponseWriter, r *http.Request) {
 	for cursor.Next(ctx) {
 		cursor.Decode(&recipedb)
 		recipes = append(recipes, recipedb)
-		fmt.Printf("? %+v\n", recipedb)
 	}
 
 	resp := map[string]interface{}{"recipes": recipes}
@@ -553,6 +559,317 @@ var GetNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// CreateNSAppHandler creates a new application for namespace
+var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not a namespace member"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	data := &Application{}
+	err = json.NewDecoder(r.Body).Decode(data)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to decode message"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	data.Namespace = nsID
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"name": data.Name,
+	}
+	var appdb Application
+	err = recipeCollection.FindOne(ctx, ns).Decode(&appdb)
+	if err != mongo.ErrNoDocuments {
+		// already exists
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "application already exists"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	newapp, err := appCollection.InsertOne(ctx, data)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to create application"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	config := terraConfig.LoadConfig()
+	remote := []string{config.URL, "deploy", "ns", nsID, "app", newapp.InsertedID.(primitive.ObjectID).Hex()}
+	w.Header().Add("Content-Type", "application/json")
+	w.Header().Add("Location", strings.Join(remote, "/"))
+	w.WriteHeader(http.StatusCreated)
+
+	resp := map[string]interface{}{"app": newapp.InsertedID}
+
+	json.NewEncoder(w).Encode(resp)
+}
+
+// GetNSAppsHandler get namespace apps
+var GetNSAppsHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not a namespace member"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"namespace": nsID,
+	}
+
+	apps := make([]Application, 0)
+	var appdb Application
+	cursor, err := appCollection.Find(ctx, ns)
+	for cursor.Next(ctx) {
+		cursor.Decode(&appdb)
+		apps = append(apps, appdb)
+	}
+
+	resp := map[string]interface{}{"apps": apps}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// GetNSAppHandler get namespace application
+var GetNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	appID, _ := primitive.ObjectIDFromHex(vars["application"])
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not a namespace member"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"namespace": nsID,
+		"_id":       appID,
+	}
+
+	var appdb Application
+	err = appCollection.FindOne(ctx, ns).Decode(&appdb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "application not found"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	resp := map[string]interface{}{"app": appdb}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// Endpoints *************************************
+
+// CreateNSEndpointHandler creates a new endpoint for namespace
+var CreateNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not a namespace member"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	data := &EndPoint{}
+	err = json.NewDecoder(r.Body).Decode(data)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to decode message"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	data.Namespace = nsID
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"name": data.Name,
+	}
+	var endpointdb EndPoint
+	err = endpointCollection.FindOne(ctx, ns).Decode(&endpointdb)
+	if err != mongo.ErrNoDocuments {
+		// already exists
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "endpoint already exists"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	newendpoint, err := endpointCollection.InsertOne(ctx, data)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to create endpoint"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	config := terraConfig.LoadConfig()
+	remote := []string{config.URL, "deploy", "ns", nsID, "endpoint", newendpoint.InsertedID.(primitive.ObjectID).Hex()}
+	w.Header().Add("Content-Type", "application/json")
+	w.Header().Add("Location", strings.Join(remote, "/"))
+	w.WriteHeader(http.StatusCreated)
+
+	resp := map[string]interface{}{"endopint": newendpoint.InsertedID}
+
+	json.NewEncoder(w).Encode(resp)
+}
+
+// GetNSEndpointsHandler get namespace endpoints
+var GetNSEndpointsHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not a namespace member"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"namespace": nsID,
+	}
+
+	endpoints := make([]EndPoint, 0)
+	var endpointdb EndPoint
+	cursor, err := endpointCollection.Find(ctx, ns)
+	for cursor.Next(ctx) {
+		cursor.Decode(&endpointdb)
+		endpoints = append(endpoints, endpointdb)
+	}
+
+	resp := map[string]interface{}{"endopints": endpoints}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// GetNSEndpointHandler get namespace endpoint
+var GetNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	endpointID, _ := primitive.ObjectIDFromHex(vars["endpoint"])
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not a namespace member"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"namespace": nsID,
+		"_id":       endpointID,
+	}
+
+	var endpointdb EndPoint
+	err = endpointCollection.FindOne(ctx, ns).Decode(&endpointdb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "endpoint not found"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	resp := map[string]interface{}{"endpoint": endpointdb}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// End of Endpoints ******************************
+
+// Run *******************************************
+func runApp() {
+	//config := terraConfig.LoadConfig()
+	//dbHandler := terraDb.NewClient(config)
+
+}
+
+// End of Run ************************************
+
 func main() {
 
 	config := terraConfig.LoadConfig()
@@ -571,6 +888,8 @@ func main() {
 	}
 	nsCollection = mongoClient.Database(config.Mongo.DB).Collection("ns")
 	recipeCollection = mongoClient.Database(config.Mongo.DB).Collection("recipe")
+	appCollection = mongoClient.Database(config.Mongo.DB).Collection("application")
+	endpointCollection = mongoClient.Database(config.Mongo.DB).Collection("endpoint")
 
 	// userCollection = mongoClient.Database(config.Mongo.DB).Collection("users")
 
@@ -589,21 +908,22 @@ func main() {
 	// r.HandleFunc("/deploy/ns/{id}/recipe/{recipe}", UpdateNSRecipeHandler).Methods("PUT") // update recipe
 	// r.HandleFunc("/deploy/ns/{id}/recipe/{recipe}", DeleteNSRecipeHandler).Methods("DELETE")  // delete recipe
 
-	// r.HandleFunc("/deploy/ns/{id}/app", CreateNSAppHandler).Methods("POST")  // create app
-	// r.HandleFunc("/deploy/ns/{id}/app", GetNSAppsHandler).Methods("GET")  // get namespace apps
+	r.HandleFunc("/deploy/ns/{id}/app", CreateNSAppHandler).Methods("POST") // create app
+	r.HandleFunc("/deploy/ns/{id}/app", GetNSAppsHandler).Methods("GET")    // get namespace apps
 	// r.HandleFunc("/deploy/ns/{id}/app/{application}", UpdateNSAppHandler).Methods("PUT")  // update app
-	// r.HandleFunc("/deploy/ns/{id}/app/{application}", GetNSAppHandler).Methods("GET")  //get app
+	r.HandleFunc("/deploy/ns/{id}/app/{application}", GetNSAppHandler).Methods("GET") //get app
 	// r.HandleFunc("/deploy/ns/{id}/app/{application}", GetNSAppHandler).Methods("DELETE")  //delete app
 
 	// r.HandleFunc("/deploy/recipe", GetPublicRecipesHandler).Methods("GET")  //get public recipes
 	// r.HandleFunc("/deploy/app", GetPublicAppsHandler).Methods("GET")  //get public apps
+
 	// r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST")  // deploy app
 	// r.HandleFunc("/deploy/ns/{id}/run/{run}", GetRunHandler).Methods("GET")  // get run info
 	// r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")  // stop run
 
-	// r.HandleFunc("/deploy/ns/{id}/endpoint", CreateNSEndpointsHandler).Methods("GET")  // get ns endpoints
-	// r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", CreateNSEndpointHandler).Methods("POST")  // add endpoint
-	// r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", GetNSEndpointHandler).Methods("GET")  // get endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")               // get ns endpoints
+	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", CreateNSEndpointHandler).Methods("POST") // add endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", GetNSEndpointHandler).Methods("GET")     // get endpoint
 	// r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", DeleteNSEndpointHandler).Methods("DELETE")  // delete endpoint
 
 	handler := cors.Default().Handler(r)

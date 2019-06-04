@@ -68,8 +68,61 @@ components:
         recipes:
           type: array
           items:
-            $ref: '/#/components/schema/Recipe'
-    
+            $ref: '#/components/schemas/Recipe'
+        inputs:
+          description: "expected inputs used for deployment"
+          type: object
+          additionalProperties:
+            type: string
+        templates:
+          description: "terraform templates per endpoint type"
+          type: object
+          additionalProperties:
+            type: string
+    Endpoint:
+      type: object
+      properties:
+        kind:
+          type: string  # openstack, ..
+        name:
+          type: string
+        info:
+          type: object  # connection info, depends on kind
+        features:
+          $ref: '#/components/schemas/EndpointFeature'
+        inputs:
+          description: "expected inputs used for deployment such as credentials"
+          type: object
+          additionalProperties:
+            type: string
+    EndpointFeature:
+      type: object
+      properties:
+        publicip:
+          type: boolean
+          default: false
+        ephemeral_storage:
+          type: boolean
+          default: false
+        shared_storage:
+          type: boolean
+          default: false
+    Run:
+      type: object
+      properties:
+        endpoint:
+          type: string
+        namespace:
+          type: string
+        status:
+          type: string
+        appID:
+          type: string
+        inputs:
+          description: "inputs expected by app/endpoint for deployment"
+          type: object
+          additionalProperties:
+            type: string
 paths:
   /deploy:
     get:
@@ -575,6 +628,11 @@ paths:
           schema:
             type: string
           description: id of the application
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Run'
       responses:
         '201':
           description: application created
@@ -655,6 +713,11 @@ paths:
           schema:
             type: string
           description: id of the namespace
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Endpoint'      
       responses:
         '201':
           description: endpoint created
@@ -663,7 +726,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  app:
+                  endopint:
                     type: string
                     description: id of the endpoint
         '403':
@@ -717,7 +780,7 @@ paths:
           description: id of the endpoint
       responses:
         '200':
-          description: endopint info
+          description: endpoint info
           content:
             application/json:
               schema:
