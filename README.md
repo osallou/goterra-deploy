@@ -1,6 +1,6 @@
 # GoTorra deployment
 
-manage recipe and app creations to deploy on multiple clouds (at frist openstack but allows multiple sites).
+manage recipe and app creations to deploy on multiple clouds (at first openstack but allows multiple sites).
 Based on terraform
 
 ## Needs
@@ -16,4 +16,6 @@ mongodb, goterra-auth
 
 in development
 
+## License
 
+Apache 2.0
