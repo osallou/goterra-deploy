@@ -95,6 +95,11 @@ components:
           type: object
           additionalProperties:
             type: string
+        images:
+          description: "map of image ids for this endpoint"
+          type: object
+          additionalProperties:
+            type: string
     TerraformTemplates:
       type: object
       properties:

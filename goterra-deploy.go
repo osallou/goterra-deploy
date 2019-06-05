@@ -122,6 +122,7 @@ type EndPoint struct {
 	Openstack Openstack          `json:"openstack"` // for Kind=openstack
 	Features  map[string]string  `json:"features"`
 	Inputs    map[string]string  `json:"inputs"` // expected inputs (credentials, ...)
+	Images    map[string]string  `json:"images"` // map recipe image id to endpoint image id
 }
 
 // CheckAPIKey check X-API-Key authorization content and returns user info
@@ -1024,8 +1025,13 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 		variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", key, endpointDb.Features[key])
 	}
 
+	imageId := appDb.Image
+	if val, ok := endpointDb.Images[appDb.Image]; ok {
+		imageId = val
+	}
+
 	if _, ok := loadedVariables["image_id"]; !ok {
-		variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", "image_id", appDb.Image)
+		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "image_id", imageId)
 	}
 	return variablesTf, appTf, nil
 }
