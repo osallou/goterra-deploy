@@ -1175,6 +1175,13 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 func main() {
 
 	config := terraConfig.LoadConfig()
+
+	consulErr := terraConfig.ConsulDeclare("got-deploy", "/deploy")
+	if consulErr != nil {
+		fmt.Printf("Failed to register: %s", consulErr.Error())
+		panic(consulErr)
+	}
+
 	mongoClient, err := mongo.NewClient(mongoOptions.Client().ApplyURI(config.Mongo.URL))
 	if err != nil {
 		log.Printf("[ERROR] Failed to connect to mongo server %s\n", config.Mongo.URL)
