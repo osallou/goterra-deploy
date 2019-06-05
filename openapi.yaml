@@ -86,8 +86,8 @@ components:
           type: string  # openstack, ..
         name:
           type: string
-        info:
-          type: object  # connection info, depends on kind
+        openstack:
+          $ref: '#/components/schemas/EndpointOpenstack'
         features:
           $ref: '#/components/schemas/EndpointFeature'
         inputs:
@@ -95,6 +95,30 @@ components:
           type: object
           additionalProperties:
             type: string
+    EndpointOpenstack:
+      description: "openstack related config"
+      type: object
+      properties:
+        tenant_name:
+          type: string
+        tenant_id:
+          type: string
+        auth_url:
+          type: string
+        region:
+          type: string
+        domain_name:
+          type: string
+        domain_id:
+          type: string
+        project_domain_id:
+          type: string
+        project_domain_name:
+          type: string
+        user_domain_id:
+          type: string
+        user_domain_name:
+          type: string
     EndpointFeature:
       type: object
       properties:

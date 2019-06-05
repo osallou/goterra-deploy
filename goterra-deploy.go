@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"reflect"
 	"strings"
 	"time"
 
@@ -35,6 +37,7 @@ var nsCollection *mongo.Collection
 var recipeCollection *mongo.Collection
 var appCollection *mongo.Collection
 var endpointCollection *mongo.Collection
+var runCollection *mongo.Collection
 
 // HomeHandler manages base entrypoint
 var HomeHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -72,8 +75,9 @@ type Application struct {
 	Public      bool               `json:"public"`
 	Recipes     []string           `json:"recipes"`
 	Namespace   string             `json:"namespace"`
-	Templates   map[string]string  `json:"templates"`
-	Inputs      map[string]string  `json:"inputs"` // expected inputs
+	Templates   map[string]string  `json:"templates"` // One template per endpoint type (openstack, ...)
+	Inputs      map[string]string  `json:"inputs"`    // expected inputs
+	Image       string             `json:"image"`
 }
 
 // Run represents a deployment info for an app
@@ -84,21 +88,40 @@ type Run struct {
 	Status    string             `json:"status"`
 	Endpoint  string             `json:"endpoint"`
 	Namespace string             `json:"namespace"`
+	UID       string
 }
 
 const (
 	openstack = "openstack"
+	amazon    = "amazon"
+	azure     = "azure"
 )
+
+// Openstack maps to openstack provider in openstack
+type Openstack struct {
+	// Username          string `json:"user_name,omitempty"`
+	TenantName string `json:"tenant_name"`
+	TenantID   string `json:"tenant_id"`
+	// Password          string `json:"password,omitempty"`
+	AuthURL           string `json:"auth_url"`
+	Region            string `json:"region"`
+	DomainName        string `json:"domain_name,omitempty"`
+	DomainID          string `json:"domain_id,omitempty"`
+	ProjectDomainID   string `json:"project_domain_id,omitempty"`
+	ProjectDomainName string `json:"project_domain_name,omitempty"`
+	UserDomainID      string `json:"user_domain_id,omitempty"`
+	UserDomainName    string `json:"user_domain_name,omitempty"`
+}
 
 // EndPoint specifies a cloud endpoint data
 type EndPoint struct {
-	ID        primitive.ObjectID     `json:"id" bson:"_id,omitempty"`
-	Name      string                 `json:"name"`
-	Kind      string                 `json:"kind"` // openstack, etc.
-	Namespace string                 `json:"namespace"`
-	Info      map[string]interface{} `json:"info"`
-	Features  map[string]interface{} `json:"features"`
-	Inputs    map[string]string      `json:"inputs"` // expected inputs (credentials, ...)
+	ID        primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	Name      string             `json:"name"`
+	Kind      string             `json:"kind"` // openstack, etc.
+	Namespace string             `json:"namespace"`
+	Openstack Openstack          `json:"openstack"` // for Kind=openstack
+	Features  map[string]string  `json:"features"`
+	Inputs    map[string]string  `json:"inputs"` // expected inputs (credentials, ...)
 }
 
 // CheckAPIKey check X-API-Key authorization content and returns user info
@@ -154,8 +177,6 @@ func createToken(user terraUser.User) (tokenString string, err error) {
 			Audience:  "goterra/deploy",
 		},
 	}
-	// TODO Find namespaces for user (owner or member) and set namespaces
-	// Or update user with additional info ? not the best, should be independent from user "login" info/service
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err = token.SignedString(mySigningKey)
 	return tokenString, err
@@ -444,7 +465,8 @@ var CreateNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	ns := bson.M{
-		"name": data.Name,
+		"name":      data.Name,
+		"namespace": data.Namespace,
 	}
 	var recipedb Recipe
 	err = recipeCollection.FindOne(ctx, ns).Decode(&recipedb)
@@ -593,10 +615,11 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	ns := bson.M{
-		"name": data.Name,
+		"name":      data.Name,
+		"namespace": data.Namespace,
 	}
 	var appdb Application
-	err = recipeCollection.FindOne(ctx, ns).Decode(&appdb)
+	err = appCollection.FindOne(ctx, ns).Decode(&appdb)
 	if err != mongo.ErrNoDocuments {
 		// already exists
 		w.Header().Add("Content-Type", "application/json")
@@ -605,6 +628,39 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
+
+	baseImage := ""
+	for _, rec := range data.Recipes {
+		parentBaseImage, parentErr := checkRecipeImage(rec, data.Namespace)
+		if parentErr != nil {
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": parentErr.Error()}
+			json.NewEncoder(w).Encode(respError)
+			return
+		}
+
+		if baseImage == "" {
+			baseImage = parentBaseImage
+		} else {
+			if baseImage != parentBaseImage {
+				w.Header().Add("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				respError := map[string]interface{}{"message": fmt.Sprintf("recipes using different base images: %s vs %s", baseImage, parentBaseImage)}
+				json.NewEncoder(w).Encode(respError)
+				return
+			}
+		}
+
+	}
+	if baseImage == "" {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "could not find a base image in recipes"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	data.Image = baseImage
 
 	newapp, err := appCollection.InsertOne(ctx, data)
 	if err != nil {
@@ -624,6 +680,37 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{"app": newapp.InsertedID}
 
 	json.NewEncoder(w).Encode(resp)
+}
+
+// checkRecipeImage checks (sub)recipe exists, and is public or authorized, returns base image of recipe
+func checkRecipeImage(recipe string, ns string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	recipeID, _ := primitive.ObjectIDFromHex(recipe)
+	recfilter := bson.M{
+		"_id": recipeID,
+	}
+	var recdb Recipe
+	recerr := recipeCollection.FindOne(ctx, recfilter).Decode(&recdb)
+	if recerr == mongo.ErrNoDocuments {
+		return "", fmt.Errorf("no recipe found %s", recipe)
+	}
+	if !recdb.Public && recdb.Namespace != ns {
+		return "", fmt.Errorf("recipe is not public or in namespace %s", recipe)
+	}
+	if recdb.ParentRecipe != "" {
+		parentImage, err := checkRecipeImage(recdb.ParentRecipe, ns)
+		if err != nil {
+			return "", err
+		}
+		return parentImage, nil
+	}
+	if recdb.BaseImage == "" {
+		return "", fmt.Errorf("recipe has no base image nor parent recipe")
+	}
+	return recdb.BaseImage, nil
+
 }
 
 // GetNSAppsHandler get namespace apps
@@ -744,7 +831,8 @@ var CreateNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	ns := bson.M{
-		"name": data.Name,
+		"name":      data.Name,
+		"namespace": data.Namespace,
 	}
 	var endpointdb EndPoint
 	err = endpointCollection.FindOne(ctx, ns).Decode(&endpointdb)
@@ -772,7 +860,7 @@ var CreateNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Location", strings.Join(remote, "/"))
 	w.WriteHeader(http.StatusCreated)
 
-	resp := map[string]interface{}{"endopint": newendpoint.InsertedID}
+	resp := map[string]interface{}{"endpoint": newendpoint.InsertedID}
 
 	json.NewEncoder(w).Encode(resp)
 }
@@ -862,10 +950,147 @@ var GetNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 // End of Endpoints ******************************
 
 // Run *******************************************
-func runApp() {
-	//config := terraConfig.LoadConfig()
-	//dbHandler := terraDb.NewClient(config)
 
+// 	r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST")  // deploy app
+// CreateRunHandler generates terraform setup and ask for execution
+var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	appID, _ := primitive.ObjectIDFromHex(vars["application"])
+
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not a namespace member"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	run := &Run{}
+	err = json.NewDecoder(r.Body).Decode(run)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to decode message"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	variablesTf := ""
+	for key := range run.Inputs {
+		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", key, run.Inputs[key])
+	}
+	// Now endpoint variable inputs
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"namespace": nsID,
+		"_id":       appID,
+	}
+
+	var appDb Application
+	err = appCollection.FindOne(ctx, ns).Decode(&appDb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "application not found"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	endpointID, _ := primitive.ObjectIDFromHex(run.Endpoint)
+	ns = bson.M{
+		"namespace": nsID,
+		"_id":       endpointID,
+	}
+	var endpointDb EndPoint
+	err = endpointCollection.FindOne(ctx, ns).Decode(&endpointDb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "endpoint not found"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	appTf := appDb.Templates[endpointDb.Kind]
+	if appTf == "" {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "no " + endpointDb.Kind + " template found"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	// TODO manage other kinds
+	if endpointDb.Kind == openstack {
+		s := reflect.ValueOf(&endpointDb.Openstack).Elem()
+		for i := 0; i < s.NumField(); i++ {
+			key := s.Field(i)
+			value := key.Interface()
+			fieldName := s.Type().Field(i).Tag.Get("json")
+			if fieldName != "" && fieldName != "-" {
+				if commaIdx := strings.Index(fieldName, ","); commaIdx > 0 {
+					fieldName = fieldName[:commaIdx]
+				}
+				variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", fieldName, value)
+
+			}
+
+		}
+	}
+
+	for key := range endpointDb.Features {
+		variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", key, endpointDb.Features[key])
+	}
+
+	variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", "image_id", appDb.Image)
+
+	errFile := ioutil.WriteFile("/tmp/variables.tf", []byte(variablesTf), 0644)
+	if errFile != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to write variables.tf"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	errAppFile := ioutil.WriteFile("/tmp/app.tf", []byte(appTf), 0644)
+	if errAppFile != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to write app.tf"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	run.AppID = vars["application"]
+	run.UID = claims.UID
+	run.Namespace = nsID
+	newrun, err := runCollection.InsertOne(ctx, run)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to create run"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	config := terraConfig.LoadConfig()
+	resp := map[string]interface{}{"run": newrun.InsertedID}
+	w.Header().Add("Content-Type", "application/json")
+	remote := []string{config.URL, "deploy", "ns", nsID, "run", newrun.InsertedID.(primitive.ObjectID).Hex()}
+	w.Header().Add("Location", strings.Join(remote, "/"))
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(resp)
 }
 
 // End of Run ************************************
@@ -890,6 +1115,7 @@ func main() {
 	recipeCollection = mongoClient.Database(config.Mongo.DB).Collection("recipe")
 	appCollection = mongoClient.Database(config.Mongo.DB).Collection("application")
 	endpointCollection = mongoClient.Database(config.Mongo.DB).Collection("endpoint")
+	runCollection = mongoClient.Database(config.Mongo.DB).Collection("run")
 
 	// userCollection = mongoClient.Database(config.Mongo.DB).Collection("users")
 
@@ -917,13 +1143,13 @@ func main() {
 	// r.HandleFunc("/deploy/recipe", GetPublicRecipesHandler).Methods("GET")  //get public recipes
 	// r.HandleFunc("/deploy/app", GetPublicAppsHandler).Methods("GET")  //get public apps
 
-	// r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST")  // deploy app
+	r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST") // deploy app
 	// r.HandleFunc("/deploy/ns/{id}/run/{run}", GetRunHandler).Methods("GET")  // get run info
 	// r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")  // stop run
 
-	r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")               // get ns endpoints
-	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", CreateNSEndpointHandler).Methods("POST") // add endpoint
-	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", GetNSEndpointHandler).Methods("GET")     // get endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")           // get ns endpoints
+	r.HandleFunc("/deploy/ns/{id}/endpoint", CreateNSEndpointHandler).Methods("POST")        // add endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", GetNSEndpointHandler).Methods("GET") // get endpoint
 	// r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", DeleteNSEndpointHandler).Methods("DELETE")  // delete endpoint
 
 	handler := cors.Default().Handler(r)
