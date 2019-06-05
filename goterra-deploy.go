@@ -543,21 +543,7 @@ var GetNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nsID := vars["id"]
 	recipeID, _ := primitive.ObjectIDFromHex(vars["recipe"])
-	claims, err := CheckToken(r.Header.Get("Authorization"))
-	if err != nil {
-		w.Header().Add("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
-		json.NewEncoder(w).Encode(respError)
-		return
-	}
-	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
-		w.Header().Add("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		respError := map[string]interface{}{"message": "not a namespace member"}
-		json.NewEncoder(w).Encode(respError)
-		return
-	}
+	claims, claimserr := CheckToken(r.Header.Get("Authorization"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -567,13 +553,30 @@ var GetNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var recipedb Recipe
-	err = recipeCollection.FindOne(ctx, ns).Decode(&recipedb)
+	err := recipeCollection.FindOne(ctx, ns).Decode(&recipedb)
 	if err == mongo.ErrNoDocuments {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		respError := map[string]interface{}{"message": "recipe not found"}
 		json.NewEncoder(w).Encode(respError)
 		return
+	}
+
+	if !recipedb.Public {
+		if claimserr != nil {
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", claimserr)}
+			json.NewEncoder(w).Encode(respError)
+			return
+		}
+		if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": "not a namespace member"}
+			json.NewEncoder(w).Encode(respError)
+			return
+		}
 	}
 
 	resp := map[string]interface{}{"recipe": recipedb}
@@ -757,21 +760,7 @@ var GetNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nsID := vars["id"]
 	appID, _ := primitive.ObjectIDFromHex(vars["application"])
-	claims, err := CheckToken(r.Header.Get("Authorization"))
-	if err != nil {
-		w.Header().Add("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
-		json.NewEncoder(w).Encode(respError)
-		return
-	}
-	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
-		w.Header().Add("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		respError := map[string]interface{}{"message": "not a namespace member"}
-		json.NewEncoder(w).Encode(respError)
-		return
-	}
+	claims, claimserr := CheckToken(r.Header.Get("Authorization"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -781,13 +770,30 @@ var GetNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var appdb Application
-	err = appCollection.FindOne(ctx, ns).Decode(&appdb)
+	err := appCollection.FindOne(ctx, ns).Decode(&appdb)
 	if err == mongo.ErrNoDocuments {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		respError := map[string]interface{}{"message": "application not found"}
 		json.NewEncoder(w).Encode(respError)
 		return
+	}
+
+	if !appdb.Public {
+		if claimserr != nil {
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", claimserr)}
+			json.NewEncoder(w).Encode(respError)
+			return
+		}
+		if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": "not a namespace member"}
+			json.NewEncoder(w).Encode(respError)
+			return
+		}
 	}
 
 	resp := map[string]interface{}{"app": appdb}
@@ -951,12 +957,83 @@ var GetNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 
 // Run *******************************************
 
-// 	r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST")  // deploy app
-// CreateRunHandler generates terraform setup and ask for execution
-var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
+func getTerraTemplates(userID string, nsID string, app string, run *Run) (variablesTf string, appTf string, err error) {
+	appID, _ := primitive.ObjectIDFromHex(app)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"_id": appID,
+	}
+
+	var appDb Application
+	err = appCollection.FindOne(ctx, ns).Decode(&appDb)
+	if err == mongo.ErrNoDocuments {
+		return "", "", fmt.Errorf("application not found")
+	}
+	if !appDb.Public && !terraDeployUtils.IsMemberOfNS(nsCollection, appDb.Namespace, userID) {
+		return "", "", fmt.Errorf("not allowed to access namespace %s by %s", appDb.Namespace, userID)
+	}
+
+	endpointID, _ := primitive.ObjectIDFromHex(run.Endpoint)
+	ns = bson.M{
+		"namespace": nsID,
+		"_id":       endpointID,
+	}
+	var endpointDb EndPoint
+	err = endpointCollection.FindOne(ctx, ns).Decode(&endpointDb)
+	if err == mongo.ErrNoDocuments {
+		return "", "", fmt.Errorf("endpoint not found")
+	}
+
+	appTf = appDb.Templates[endpointDb.Kind]
+	if appTf == "" {
+		return "", "", fmt.Errorf("no " + endpointDb.Kind + " template found")
+	}
+
+	variablesTf = ""
+	loadedVariables := make(map[string]bool)
+
+	for key := range run.Inputs {
+		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", key, run.Inputs[key])
+		loadedVariables[key] = true
+	}
+
+	if terraDeployUtils.IsMemberOfNS(nsCollection, nsID, userID) {
+		// TODO manage other kinds
+		if endpointDb.Kind == openstack {
+			s := reflect.ValueOf(&endpointDb.Openstack).Elem()
+			for i := 0; i < s.NumField(); i++ {
+				key := s.Field(i)
+				value := key.Interface()
+				fieldName := s.Type().Field(i).Tag.Get("json")
+				if fieldName != "" && fieldName != "-" {
+					if commaIdx := strings.Index(fieldName, ","); commaIdx > 0 {
+						fieldName = fieldName[:commaIdx]
+					}
+					if _, ok := loadedVariables[fieldName]; !ok {
+						variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", fieldName, value)
+						loadedVariables[fieldName] = true
+					}
+				}
+			}
+		}
+	}
+
+	for key := range endpointDb.Features {
+		variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", key, endpointDb.Features[key])
+	}
+
+	if _, ok := loadedVariables["image_id"]; !ok {
+		variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", "image_id", appDb.Image)
+	}
+	return variablesTf, appTf, nil
+}
+
+// CreateRunTerraformHandlerHandler get terraform templates to exec app but does not deploy it
+var CreateRunTerraformHandlerHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nsID := vars["id"]
-	appID, _ := primitive.ObjectIDFromHex(vars["application"])
 
 	claims, err := CheckToken(r.Header.Get("Authorization"))
 	if err != nil {
@@ -966,13 +1043,15 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
-	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
-		w.Header().Add("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		respError := map[string]interface{}{"message": "not a namespace member"}
-		json.NewEncoder(w).Encode(respError)
-		return
-	}
+	/*
+		if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": "not a namespace member"}
+			json.NewEncoder(w).Encode(respError)
+			return
+		}
+	*/
 
 	run := &Run{}
 	err = json.NewDecoder(r.Body).Decode(run)
@@ -984,97 +1063,68 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	variablesTf := ""
-	for key := range run.Inputs {
-		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", key, run.Inputs[key])
-	}
-	// Now endpoint variable inputs
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	ns := bson.M{
-		"namespace": nsID,
-		"_id":       appID,
-	}
-
-	var appDb Application
-	err = appCollection.FindOne(ctx, ns).Decode(&appDb)
-	if err == mongo.ErrNoDocuments {
+	variablesTf, appTf, errTf := getTerraTemplates(claims.UID, nsID, vars["application"], run)
+	if errTf != nil {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
-		respError := map[string]interface{}{"message": "application not found"}
+		respError := map[string]interface{}{"message": errTf.Error()}
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
 
-	endpointID, _ := primitive.ObjectIDFromHex(run.Endpoint)
-	ns = bson.M{
-		"namespace": nsID,
-		"_id":       endpointID,
-	}
-	var endpointDb EndPoint
-	err = endpointCollection.FindOne(ctx, ns).Decode(&endpointDb)
-	if err == mongo.ErrNoDocuments {
+	resp := map[string]interface{}{"variables.tf": variablesTf, "app.tf": appTf}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// CreateRunHandler generates terraform setup and ask for execution
+var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		respError := map[string]interface{}{"message": "endpoint not found"}
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
-
-	appTf := appDb.Templates[endpointDb.Kind]
-	if appTf == "" {
-		w.Header().Add("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		respError := map[string]interface{}{"message": "no " + endpointDb.Kind + " template found"}
-		json.NewEncoder(w).Encode(respError)
-		return
-	}
-
-	// TODO manage other kinds
-	if endpointDb.Kind == openstack {
-		s := reflect.ValueOf(&endpointDb.Openstack).Elem()
-		for i := 0; i < s.NumField(); i++ {
-			key := s.Field(i)
-			value := key.Interface()
-			fieldName := s.Type().Field(i).Tag.Get("json")
-			if fieldName != "" && fieldName != "-" {
-				if commaIdx := strings.Index(fieldName, ","); commaIdx > 0 {
-					fieldName = fieldName[:commaIdx]
-				}
-				variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", fieldName, value)
-
-			}
-
+	/*
+		if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": "not a namespace member"}
+			json.NewEncoder(w).Encode(respError)
+			return
 		}
-	}
+	*/
 
-	for key := range endpointDb.Features {
-		variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", key, endpointDb.Features[key])
-	}
-
-	variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", "image_id", appDb.Image)
-
-	errFile := ioutil.WriteFile("/tmp/variables.tf", []byte(variablesTf), 0644)
-	if errFile != nil {
+	run := &Run{}
+	err = json.NewDecoder(r.Body).Decode(run)
+	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		respError := map[string]interface{}{"message": "failed to write variables.tf"}
-		json.NewEncoder(w).Encode(respError)
-		return
-	}
-	errAppFile := ioutil.WriteFile("/tmp/app.tf", []byte(appTf), 0644)
-	if errAppFile != nil {
-		w.Header().Add("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		respError := map[string]interface{}{"message": "failed to write app.tf"}
+		respError := map[string]interface{}{"message": "failed to decode message"}
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
 
+	variablesTf, appTf, errTf := getTerraTemplates(claims.UID, nsID, vars["application"], run)
+	if errTf != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": errTf.Error()}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	config := terraConfig.LoadConfig()
 	run.AppID = vars["application"]
 	run.UID = claims.UID
 	run.Namespace = nsID
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	newrun, err := runCollection.InsertOne(ctx, run)
 	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
@@ -1084,7 +1134,26 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	config := terraConfig.LoadConfig()
+	runPathElts := []string{config.Deploy.Path, newrun.InsertedID.(primitive.ObjectID).Hex()}
+	runPath := strings.Join(runPathElts, "/")
+	os.MkdirAll(runPath, os.ModePerm)
+	errFile := ioutil.WriteFile(runPath+"/variables.tf", []byte(variablesTf), 0644)
+	if errFile != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to write variables.tf"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	errAppFile := ioutil.WriteFile(runPath+"/app.tf", []byte(appTf), 0644)
+	if errAppFile != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to write app.tf"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
 	resp := map[string]interface{}{"run": newrun.InsertedID}
 	w.Header().Add("Content-Type", "application/json")
 	remote := []string{config.URL, "deploy", "ns", nsID, "run", newrun.InsertedID.(primitive.ObjectID).Hex()}
@@ -1145,6 +1214,8 @@ func main() {
 
 	r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST") // deploy app
 	// r.HandleFunc("/deploy/ns/{id}/run/{run}", GetRunHandler).Methods("GET")  // get run info
+	r.HandleFunc("/deploy/ns/{id}/run/{application}/terraform", CreateRunTerraformHandlerHandler).Methods("POST") //get terraform templates for a run but do not deploy app
+
 	// r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")  // stop run
 
 	r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")           // get ns endpoints

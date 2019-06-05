@@ -95,6 +95,13 @@ components:
           type: object
           additionalProperties:
             type: string
+    TerraformTemplates:
+      type: object
+      properties:
+        variables.tf:
+          type: string
+        app.tf:
+          type: string
     EndpointOpenstack:
       description: "openstack related config"
       type: object
@@ -724,7 +731,40 @@ paths:
           description: invalid token
         '404':
           description: run id not found
-          
+  /deploy/ns/{id}/run/{application}/terraform:
+    post:
+      security:
+        - JWTToken: []
+      summary: get terraform template and vars for application [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: application
+          required: true
+          schema:
+            type: string
+          description: id of the application
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Run'
+      responses:
+        '200':
+          description: "terraform templates"
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TerraformTemplates'
+        '403':
+          description: invalid token
+        '404':
+          description: application not found          
   /deploy/ns/{id}/endpoint:
     post:
       security:

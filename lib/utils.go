@@ -30,10 +30,10 @@ func _getNS(coll *mongo.Collection, nsID string) (owners []string, members []str
 	if err == mongo.ErrNoDocuments {
 		return owners, members
 	}
-	return owners, members
+	return nsdb.Owners, nsdb.Members
 }
 
-// isOwnerOfNS checks if user is owner of namespace
+// IsOwnerOfNS checks if user is owner of namespace
 func IsOwnerOfNS(coll *mongo.Collection, ns string, uid string) bool {
 	owners, _ := _getNS(coll, ns)
 	for _, owner := range owners {
@@ -44,7 +44,7 @@ func IsOwnerOfNS(coll *mongo.Collection, ns string, uid string) bool {
 	return false
 }
 
-// isMemberOfNS checks if user is owner or member of namespace
+// IsMemberOfNS checks if user is owner or member of namespace
 func IsMemberOfNS(coll *mongo.Collection, ns string, uid string) bool {
 	owners, members := _getNS(coll, ns)
 	for _, owner := range owners {
