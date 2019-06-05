@@ -1154,6 +1154,8 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// TODO send for execution
+
 	resp := map[string]interface{}{"run": newrun.InsertedID}
 	w.Header().Add("Content-Type", "application/json")
 	remote := []string{config.URL, "deploy", "ns", nsID, "run", newrun.InsertedID.(primitive.ObjectID).Hex()}
