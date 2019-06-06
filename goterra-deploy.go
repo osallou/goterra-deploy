@@ -65,6 +65,9 @@ type Recipe struct {
 	Namespace    string             `json:"namespace"`
 	BaseImage    string             `json:"base"`
 	ParentRecipe string             `json:"parent"`
+	Timestamp    int64              `json:"ts"`
+	Previous     string             `json:"prev"`     // Previous recipe id, for versioning
+	Requires     []string           `json:"requires"` // List of input variables needed when executing at app for this recipe, those variables should be sent as env_XX if XX is in requires
 }
 
 // Application descripe an app to deploy
@@ -78,6 +81,8 @@ type Application struct {
 	Templates   map[string]string  `json:"templates"` // One template per endpoint type (openstack, ...)
 	Inputs      map[string]string  `json:"inputs"`    // expected inputs
 	Image       string             `json:"image"`
+	Timestamp   int64              `json:"ts"`
+	Previous    string             `json:"prev"` // Previous app id, for versioning
 }
 
 // Run represents a deployment info for an app
@@ -461,6 +466,8 @@ var CreateNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
+	t := time.Now()
+	data.Timestamp = t.Unix()
 	data.Namespace = nsID
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -614,6 +621,8 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
+	t := time.Now()
+	data.Timestamp = t.Unix()
 	data.Namespace = nsID
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
