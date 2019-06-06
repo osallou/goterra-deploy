@@ -100,6 +100,23 @@ components:
           type: object
           additionalProperties:
             type: string
+    ApplicationRequirements:
+      type: object
+      properties:
+        application:
+          type: object
+          additionalProperties:
+            type: string
+        recipes:
+          type: object
+          additionalProperties:
+            type: string
+        endpoints:
+          type: object
+          additionalProperties:
+            type: object
+            additionalProperties:
+              type: string
     TerraformTemplates:
       type: object
       properties:
@@ -525,6 +542,38 @@ paths:
                     description: id of the application
         '403':
           description: invalid token
+  /deploy/ns/{id}/app/{application}/inputs:
+    get:
+      security:
+        - JWTToken: []
+      summary: get namespace applications needed inputs [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: application
+          required: true
+          schema:
+            type: string
+          description: id of the application
+      responses:
+        '200':
+          description: application details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    $ref: '#/components/schemas/ApplicationRequirements'
+        '403':
+          description: invalid token
+        '404':
+          description: not found
   /deploy/ns/{id}/app/{application}:
     get:
       security:
@@ -551,10 +600,12 @@ paths:
               schema:
                 type: object
                 properties:
-                  apps:
+                  app:
                     $ref: '#/components/schemas/Application'
         '403':
           description: invalid token
+        '404':
+          description: not found
     put:
       security:
         - JWTToken: []

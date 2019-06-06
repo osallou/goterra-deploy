@@ -66,8 +66,8 @@ type Recipe struct {
 	BaseImage    string             `json:"base"`
 	ParentRecipe string             `json:"parent"`
 	Timestamp    int64              `json:"ts"`
-	Previous     string             `json:"prev"`     // Previous recipe id, for versioning
-	Requires     []string           `json:"requires"` // List of input variables needed when executing at app for this recipe, those variables should be sent as env_XX if XX is in requires
+	Previous     string             `json:"prev"`   // Previous recipe id, for versioning
+	Inputs       map[string]string  `json:"inputs"` // List of input variables needed when executing at app for this recipe, those variables should be sent as env_XX if XX is in requires: varname,label
 }
 
 // Application descripe an app to deploy
@@ -79,7 +79,7 @@ type Application struct {
 	Recipes     []string           `json:"recipes"`
 	Namespace   string             `json:"namespace"`
 	Templates   map[string]string  `json:"templates"` // One template per endpoint type (openstack, ...)
-	Inputs      map[string]string  `json:"inputs"`    // expected inputs
+	Inputs      map[string]string  `json:"inputs"`    // expected inputs varname, label
 	Image       string             `json:"image"`
 	Timestamp   int64              `json:"ts"`
 	Previous    string             `json:"prev"` // Previous app id, for versioning
@@ -98,16 +98,14 @@ type Run struct {
 
 const (
 	openstack = "openstack"
-	amazon    = "amazon"
-	azure     = "azure"
+	// amazon    = "amazon"
+	// azure     = "azure"
 )
 
 // Openstack maps to openstack provider in openstack
 type Openstack struct {
-	// Username          string `json:"user_name,omitempty"`
-	TenantName string `json:"tenant_name"`
-	TenantID   string `json:"tenant_id"`
-	// Password          string `json:"password,omitempty"`
+	TenantName        string `json:"tenant_name"`
+	TenantID          string `json:"tenant_id"`
 	AuthURL           string `json:"auth_url"`
 	Region            string `json:"region"`
 	DomainName        string `json:"domain_name,omitempty"`
@@ -116,6 +114,8 @@ type Openstack struct {
 	ProjectDomainName string `json:"project_domain_name,omitempty"`
 	UserDomainID      string `json:"user_domain_id,omitempty"`
 	UserDomainName    string `json:"user_domain_name,omitempty"`
+
+	Inputs map[string]string `json:"inputs"` // expected inputs (credentials, ...), varname, label
 }
 
 // EndPoint specifies a cloud endpoint data
@@ -126,7 +126,7 @@ type EndPoint struct {
 	Namespace string             `json:"namespace"`
 	Openstack Openstack          `json:"openstack"` // for Kind=openstack
 	Features  map[string]string  `json:"features"`
-	Inputs    map[string]string  `json:"inputs"` // expected inputs (credentials, ...)
+	Inputs    map[string]string  `json:"inputs"` // expected inputs common to all kind of inputs varname, label
 	Images    map[string]string  `json:"images"` // map recipe image id to endpoint image id
 }
 
@@ -834,6 +834,125 @@ var GetNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// AppExpectedInputs gets all inputs from app, recipes and defined endpoints
+type AppExpectedInputs struct {
+	Application map[string]string            `json:"application"`
+	Recipes     map[string]string            `json:"recipes"`
+	EndPoints   map[string]map[string]string `json:"endpoints"`
+}
+
+// getRecipeInputs get (sub)recipe inputs
+func getRecipeInputs(recipe string, ns string) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	recipeID, _ := primitive.ObjectIDFromHex(recipe)
+	recfilter := bson.M{
+		"_id": recipeID,
+	}
+	var recdb Recipe
+	recerr := recipeCollection.FindOne(ctx, recfilter).Decode(&recdb)
+	if recerr == mongo.ErrNoDocuments {
+		return nil, fmt.Errorf("no recipe found %s", recipe)
+	}
+	if !recdb.Public && recdb.Namespace != ns {
+		return nil, fmt.Errorf("recipe is not public or in namespace %s", recipe)
+	}
+	if recdb.ParentRecipe != "" {
+		parentInputs, err := getRecipeInputs(recdb.ParentRecipe, ns)
+		if err != nil {
+			return nil, err
+		}
+		for k, v := range parentInputs {
+			recdb.Inputs[k] = v
+		}
+		return recdb.Inputs, nil
+	}
+	if recdb.BaseImage == "" {
+		return nil, fmt.Errorf("recipe has no base image nor parent recipe")
+	}
+	return recdb.Inputs, nil
+
+}
+
+//GetNSAppInputsHandler gets application expected inputs for a run
+var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	appID, _ := primitive.ObjectIDFromHex(vars["application"])
+	claims, claimserr := CheckToken(r.Header.Get("Authorization"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"namespace": nsID,
+		"_id":       appID,
+	}
+
+	var appdb Application
+	err := appCollection.FindOne(ctx, ns).Decode(&appdb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "application not found"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	if !appdb.Public {
+		if claimserr != nil {
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", claimserr)}
+			json.NewEncoder(w).Encode(respError)
+			return
+		}
+		if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": "not a namespace member"}
+			json.NewEncoder(w).Encode(respError)
+			return
+		}
+	}
+
+	appInputs := &AppExpectedInputs{}
+	appInputs.Application = appdb.Inputs
+	// Get recipes
+	appInputs.Recipes = make(map[string]string)
+	for _, recipe := range appdb.Recipes {
+		elts, eltserr := getRecipeInputs(recipe, nsID)
+		if eltserr == nil && elts != nil {
+			for eltsk, eltsv := range elts {
+				appInputs.Recipes[eltsk] = eltsv
+			}
+		}
+	}
+
+	// Get endpoints
+	epns := bson.M{
+		"namespace": nsID,
+	}
+
+	appInputs.EndPoints = make(map[string]map[string]string)
+	endpoints := make([]EndPoint, 0)
+	cursor, err := endpointCollection.Find(ctx, epns)
+	for cursor.Next(ctx) {
+		var endpointdb EndPoint
+		cursor.Decode(&endpointdb)
+		// TODO manage other kind of endpoints
+		appInputs.EndPoints["openstack"] = endpointdb.Inputs
+		for k, v := range endpointdb.Openstack.Inputs {
+			appInputs.EndPoints["openstack"][k] = v
+		}
+		endpoints = append(endpoints, endpointdb)
+	}
+
+	resp := map[string]interface{}{"app": appInputs}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
 // Endpoints *************************************
 
 // CreateNSEndpointHandler creates a new endpoint for namespace
@@ -938,7 +1057,7 @@ var GetNSEndpointsHandler = func(w http.ResponseWriter, r *http.Request) {
 		endpoints = append(endpoints, endpointdb)
 	}
 
-	resp := map[string]interface{}{"endopints": endpoints}
+	resp := map[string]interface{}{"endpoints": endpoints}
 	w.Header().Add("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
@@ -1253,7 +1372,9 @@ func main() {
 	r.HandleFunc("/deploy/ns/{id}/app", CreateNSAppHandler).Methods("POST") // create app
 	r.HandleFunc("/deploy/ns/{id}/app", GetNSAppsHandler).Methods("GET")    // get namespace apps
 	// r.HandleFunc("/deploy/ns/{id}/app/{application}", UpdateNSAppHandler).Methods("PUT")  // update app
-	r.HandleFunc("/deploy/ns/{id}/app/{application}", GetNSAppHandler).Methods("GET") //get app
+	r.HandleFunc("/deploy/ns/{id}/app/{application}", GetNSAppHandler).Methods("GET")              //get app
+	r.HandleFunc("/deploy/ns/{id}/app/{application}/inputs", GetNSAppInputsHandler).Methods("GET") //get app input requirements
+
 	// r.HandleFunc("/deploy/ns/{id}/app/{application}", GetNSAppHandler).Methods("DELETE")  //delete app
 
 	// r.HandleFunc("/deploy/recipe", GetPublicRecipesHandler).Methods("GET")  //get public recipes
