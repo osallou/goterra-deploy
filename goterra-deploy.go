@@ -412,22 +412,45 @@ var GetNSALLHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !claims.Admin {
-		w.Header().Add("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		respError := map[string]interface{}{"message": "not admin"}
-		json.NewEncoder(w).Encode(respError)
-		return
+	var ns map[string]interface{}
+	if claims.Admin {
+		keys, ok := r.URL.Query()["all"]
+		if ok && keys[0] == "1" {
+			ns = bson.M{}
+		} else {
+			ns = bson.M{
+				"$or": []interface{}{
+					bson.M{"owners": claims.UID},
+					bson.M{"members": claims.UID},
+				},
+			}
+		}
+	} else {
+		ns = bson.M{
+			"$or": []interface{}{
+				bson.M{"owners": claims.UID},
+				bson.M{"members": claims.UID},
+			},
+		}
 	}
+
+	/*
+		if !claims.Admin {
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": "not admin"}
+			json.NewEncoder(w).Encode(respError)
+			return
+		}
+	*/
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	ns := bson.M{}
 
-	var nsdb terraDeployUtils.NSData
 	namespaces := make([]terraDeployUtils.NSData, 0)
 	nscursor, _ := nsCollection.Find(ctx, ns)
 	for nscursor.Next(ctx) {
+		var nsdb terraDeployUtils.NSData
 		nscursor.Decode(&nsdb)
 		namespaces = append(namespaces, nsdb)
 	}
@@ -534,9 +557,9 @@ var GetNSRecipesHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	recipes := make([]Recipe, 0)
-	var recipedb Recipe
 	cursor, err := recipeCollection.Find(ctx, ns)
 	for cursor.Next(ctx) {
+		var recipedb Recipe
 		cursor.Decode(&recipedb)
 		recipes = append(recipes, recipedb)
 	}
@@ -753,9 +776,9 @@ var GetNSAppsHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	apps := make([]Application, 0)
-	var appdb Application
 	cursor, err := appCollection.Find(ctx, ns)
 	for cursor.Next(ctx) {
+		var appdb Application
 		cursor.Decode(&appdb)
 		apps = append(apps, appdb)
 	}
@@ -908,9 +931,9 @@ var GetNSEndpointsHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	endpoints := make([]EndPoint, 0)
-	var endpointdb EndPoint
 	cursor, err := endpointCollection.Find(ctx, ns)
 	for cursor.Next(ctx) {
+		var endpointdb EndPoint
 		cursor.Decode(&endpointdb)
 		endpoints = append(endpoints, endpointdb)
 	}
@@ -1034,13 +1057,13 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 		variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", key, endpointDb.Features[key])
 	}
 
-	imageId := appDb.Image
+	imageID := appDb.Image
 	if val, ok := endpointDb.Images[appDb.Image]; ok {
-		imageId = val
+		imageID = val
 	}
 
 	if _, ok := loadedVariables["image_id"]; !ok {
-		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "image_id", imageId)
+		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "image_id", imageID)
 	}
 	return variablesTf, appTf, nil
 }

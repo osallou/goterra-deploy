@@ -199,8 +199,15 @@ paths:
     get:
       security:
         - JWTToken: []
-      summary: list namespaces [admin]
+      summary: list namespaces [member]
       description: get all created namespaces
+      parameters:
+        - in: query
+          name: all
+          required: false
+          schema:
+            type: string
+          description: set to 1 to get all namespaces (admin only)
       responses:
         '200':
           description: list of namespaces
