@@ -1195,6 +1195,10 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 	if _, ok := loadedVariables["image_id"]; !ok {
 		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "image_id", imageID)
 	}
+
+	if _, ok := loadedVariables["got_url"]; !ok {
+		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "got_url", os.Getenv("GOT_PROXY"))
+	}
 	return variablesTf, appTf, nil
 }
 
