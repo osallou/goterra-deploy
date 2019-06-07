@@ -2,9 +2,16 @@ package main
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/md5"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -48,6 +55,7 @@ var HomeHandler = func(w http.ResponseWriter, r *http.Request) {
 // Claims contains JWT claims
 type Claims struct {
 	UID        string          `json:"uid"`
+	APIKey     string          `json:"apikey"`
 	Email      string          `json:"email"`
 	Admin      bool            `json:"admin"`
 	Namespaces map[string]bool `json:"namespaces"`
@@ -160,17 +168,68 @@ func CheckToken(authToken string) (claims *Claims, err error) {
 
 	tokenStr := strings.Replace(authToken, "Bearer", "", -1)
 	tokenStr = strings.TrimSpace(tokenStr)
+
+	data, err := base64.StdEncoding.DecodeString(tokenStr)
+	if err != nil {
+		fmt.Printf("Token error: %v\n", err)
+		return claims, errors.New("Invalid token")
+	}
+	decodedToken := string(decrypt(data, config.Secret))
+
 	claims = &Claims{}
-	token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.ParseWithClaims(decodedToken, claims, func(token *jwt.Token) (interface{}, error) {
 		return []byte(config.Secret), nil
 	})
 	if err != nil || !token.Valid || claims.Audience != "goterra/deploy" {
 		fmt.Printf("Token error: %v\n", err)
 		return claims, errors.New("Invalid token")
 	}
-
+	fmt.Printf("DEBUG %+v\n", claims)
 	return claims, nil
 }
+
+// encrypt and decrypt
+
+func createHash(key string) string {
+	hasher := md5.New()
+	hasher.Write([]byte(key))
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+func encrypt(data []byte, passphrase string) []byte {
+	block, _ := aes.NewCipher([]byte(createHash(passphrase)))
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		panic(err.Error())
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
+		panic(err.Error())
+	}
+	ciphertext := gcm.Seal(nonce, nonce, data, nil)
+	return ciphertext
+}
+
+func decrypt(data []byte, passphrase string) []byte {
+	key := []byte(createHash(passphrase))
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		panic(err.Error())
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		panic(err.Error())
+	}
+	nonceSize := gcm.NonceSize()
+	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		panic(err.Error())
+	}
+	return plaintext
+}
+
+// end of encrypt
 
 // createToken creates a JWT token for input user
 func createToken(user terraUser.User) (tokenString string, err error) {
@@ -180,6 +239,7 @@ func createToken(user terraUser.User) (tokenString string, err error) {
 	expirationTime := time.Now().Add(24 * time.Hour)
 	claims := &Claims{
 		UID:        user.UID,
+		APIKey:     user.APIKey,
 		Admin:      user.Admin,
 		Namespaces: make(map[string]bool),
 		StandardClaims: jwt.StandardClaims{
@@ -189,6 +249,9 @@ func createToken(user terraUser.User) (tokenString string, err error) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err = token.SignedString(mySigningKey)
+
+	tokenBytes := []byte(tokenString)
+	tokenString = base64.StdEncoding.EncodeToString(encrypt(tokenBytes, config.Secret))
 	return tokenString, err
 }
 
@@ -1244,6 +1307,9 @@ var CreateRunTerraformHandlerHandler = func(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Add api key
+	variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "goterra_apikey", "")
+
 	resp := map[string]interface{}{"variables.tf": variablesTf, "app.tf": appTf}
 	w.Header().Add("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
@@ -1290,6 +1356,9 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
+
+	// Add api key
+	variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "goterra_apikey", claims.APIKey)
 
 	config := terraConfig.LoadConfig()
 	run.AppID = vars["application"]
