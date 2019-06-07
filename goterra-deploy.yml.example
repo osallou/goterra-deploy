@@ -18,3 +18,5 @@ web:
 deploy:
         # path where terraform scripts are written
         path: "/tmp"
+
+amqp: "amqp://guest:guest@localhost:5672/"

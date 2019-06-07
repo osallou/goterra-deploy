@@ -95,6 +95,11 @@ components:
           type: object
           additionalProperties:
             type: string
+        config:
+          description: "preset inputs used for deployment such as remote endpoint api url, ..."
+          type: object
+          additionalProperties:
+            type: string          
         images:
           description: "map of image ids for this endpoint"
           type: object

@@ -9,7 +9,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"reflect"
 	"strings"
 	"time"
 
@@ -104,6 +103,10 @@ const (
 
 // Openstack maps to openstack provider in openstack
 type Openstack struct {
+	UserName          string `json:"user_name"`
+	Password          string `json:"password"`
+	Flavor            string `json:"flavor_name"`
+	KeyPair           string `json:"key_pair"`
 	TenantName        string `json:"tenant_name"`
 	TenantID          string `json:"tenant_id"`
 	AuthURL           string `json:"auth_url"`
@@ -124,10 +127,11 @@ type EndPoint struct {
 	Name      string             `json:"name"`
 	Kind      string             `json:"kind"` // openstack, etc.
 	Namespace string             `json:"namespace"`
-	Openstack Openstack          `json:"openstack"` // for Kind=openstack
-	Features  map[string]string  `json:"features"`
-	Inputs    map[string]string  `json:"inputs"` // expected inputs common to all kind of inputs varname, label
-	Images    map[string]string  `json:"images"` // map recipe image id to endpoint image id
+	// Openstack Openstack          `json:"openstack"` // for Kind=openstack
+	Features map[string]string `json:"features"`
+	Inputs   map[string]string `json:"inputs"` // expected inputs varname, label
+	Config   map[string]string `json:"config"` // Preset some inputs like endpoints url, ... to be set in terraform variables
+	Images   map[string]string `json:"images"` // map recipe image id to endpoint image id
 }
 
 // CheckAPIKey check X-API-Key authorization content and returns user info
@@ -935,17 +939,20 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	appInputs.EndPoints = make(map[string]map[string]string)
-	endpoints := make([]EndPoint, 0)
+	// endpoints := make([]EndPoint, 0)
 	cursor, err := endpointCollection.Find(ctx, epns)
 	for cursor.Next(ctx) {
 		var endpointdb EndPoint
 		cursor.Decode(&endpointdb)
-		// TODO manage other kind of endpoints
-		appInputs.EndPoints["openstack"] = endpointdb.Inputs
-		for k, v := range endpointdb.Openstack.Inputs {
-			appInputs.EndPoints["openstack"][k] = v
-		}
-		endpoints = append(endpoints, endpointdb)
+		appInputs.EndPoints[endpointdb.Name] = endpointdb.Inputs
+		/*
+			appInputs.EndPoints["openstack"] = endpointdb.Inputs
+			for k, v := range endpointdb.Openstack.Inputs {
+				appInputs.EndPoints["openstack"][k] = v
+			}
+
+			endpoints = append(endpoints, endpointdb)
+		*/
 	}
 
 	resp := map[string]interface{}{"app": appInputs}
@@ -1152,24 +1159,28 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 	}
 
 	if terraDeployUtils.IsMemberOfNS(nsCollection, nsID, userID) {
-		// TODO manage other kinds
-		if endpointDb.Kind == openstack {
-			s := reflect.ValueOf(&endpointDb.Openstack).Elem()
-			for i := 0; i < s.NumField(); i++ {
-				key := s.Field(i)
-				value := key.Interface()
-				fieldName := s.Type().Field(i).Tag.Get("json")
-				if fieldName != "" && fieldName != "-" {
-					if commaIdx := strings.Index(fieldName, ","); commaIdx > 0 {
-						fieldName = fieldName[:commaIdx]
-					}
-					if _, ok := loadedVariables[fieldName]; !ok {
-						variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", fieldName, value)
-						loadedVariables[fieldName] = true
+		for key := range endpointDb.Config {
+			variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", key, endpointDb.Config[key])
+		}
+		/*
+			// TODO manage other kinds
+			if endpointDb.Kind == openstack {
+				s := reflect.ValueOf(&endpointDb.Openstack).Elem()
+				for i := 0; i < s.NumField(); i++ {
+					key := s.Field(i)
+					value := key.Interface()
+					fieldName := s.Type().Field(i).Tag.Get("json")
+					if fieldName != "" && fieldName != "-" {
+						if commaIdx := strings.Index(fieldName, ","); commaIdx > 0 {
+							fieldName = fieldName[:commaIdx]
+						}
+						if _, ok := loadedVariables[fieldName]; !ok {
+							variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", fieldName, value)
+							loadedVariables[fieldName] = true
+						}
 					}
 				}
-			}
-		}
+			}*/
 	}
 
 	for key := range endpointDb.Features {
