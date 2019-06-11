@@ -10,12 +10,12 @@
   revision = "ec5e00d3c878b2a97bbe0884ef45ffd1b4f669f5"
 
 [[projects]]
-  digest = "1:76dc72490af7174349349838f2fe118996381b31ea83243812a97e5a0fd5ed55"
-  name = "github.com/dgrijalva/jwt-go"
+  branch = "master"
+  digest = "1:660e6c59164572d31b7983efcddc8584a112fdf7cdd23b02417a1db16be2990d"
+  name = "github.com/fernet/fernet-go"
   packages = ["."]
   pruneopts = "UT"
-  revision = "06ea1031745cb8b3dab3f6a236daf2b0aa468b7e"
-  version = "v3.2.0"
+  revision = "9eac43b88a5efb8651d24de9b68e87567e029736"
 
 [[projects]]
   digest = "1:586ea76dbd0374d6fb649a91d70d652b7fe0ccffb8910a77468e7702e7901f3d"
@@ -115,14 +115,15 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:a3065c2f154527ba18de863484ba845532c05a5523213c432ad2781e33743bd1"
+  digest = "1:23d95c76cef0af4b15ed19701c0825ea2b8a9d0447eba9a85a17a86a2a85d5e7"
   name = "github.com/osallou/goterra-lib"
   packages = [
     "lib/config",
+    "lib/token",
     "lib/user",
   ]
   pruneopts = "UT"
-  revision = "36970e48d3f1189d9e09b1976563d7bcf3ba5a2c"
+  revision = "e18aa4fbd7873d5a588d27c332e8607f7d783195"
 
 [[projects]]
   digest = "1:b0c25f00bad20d783d259af2af8666969e2fc343fa0dc9efe52936bbd67fb758"
@@ -238,10 +239,10 @@
   analyzer-name = "dep"
   analyzer-version = 1
   input-imports = [
-    "github.com/dgrijalva/jwt-go",
     "github.com/gorilla/handlers",
     "github.com/gorilla/mux",
     "github.com/osallou/goterra-lib/lib/config",
+    "github.com/osallou/goterra-lib/lib/token",
     "github.com/osallou/goterra-lib/lib/user",
     "github.com/rs/cors",
     "github.com/streadway/amqp",
