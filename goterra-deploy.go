@@ -142,7 +142,7 @@ func CheckAPIKey(apiKey string) (data terraUser.AuthData, err error) {
 	err = nil
 	data = terraUser.AuthData{}
 	if apiKey == "" {
-		err = errors.New("missing X-API-Key")
+		err = errors.New("missing X-API-KEY")
 	} else {
 		var tauthErr error
 		data, tauthErr = terraUser.Check(apiKey)
@@ -263,7 +263,7 @@ func createToken(user terraUser.User) (tokenString string, err error) {
 
 // BindHandler gets API Key and returns a Token
 var BindHandler = func(w http.ResponseWriter, r *http.Request) {
-	data, err := CheckAPIKey(r.Header.Get("X-API-Key"))
+	data, err := CheckAPIKey(r.Header.Get("X-API-KEY"))
 	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -1213,38 +1213,10 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 	variablesTf = ""
 	loadedVariables := make(map[string]bool)
 
+	// Run
 	for key := range run.Inputs {
 		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", key, run.Inputs[key])
 		loadedVariables[key] = true
-	}
-
-	if terraDeployUtils.IsMemberOfNS(nsCollection, nsID, userID) {
-		for key := range endpointDb.Config {
-			variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", key, endpointDb.Config[key])
-		}
-		/*
-			// TODO manage other kinds
-			if endpointDb.Kind == openstack {
-				s := reflect.ValueOf(&endpointDb.Openstack).Elem()
-				for i := 0; i < s.NumField(); i++ {
-					key := s.Field(i)
-					value := key.Interface()
-					fieldName := s.Type().Field(i).Tag.Get("json")
-					if fieldName != "" && fieldName != "-" {
-						if commaIdx := strings.Index(fieldName, ","); commaIdx > 0 {
-							fieldName = fieldName[:commaIdx]
-						}
-						if _, ok := loadedVariables[fieldName]; !ok {
-							variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", fieldName, value)
-							loadedVariables[fieldName] = true
-						}
-					}
-				}
-			}*/
-	}
-
-	for key := range endpointDb.Features {
-		variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", key, endpointDb.Features[key])
 	}
 
 	imageID := appDb.Image
@@ -1256,6 +1228,18 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "image_id", imageID)
 	}
 
+	// Endpoint
+	if terraDeployUtils.IsMemberOfNS(nsCollection, nsID, userID) {
+		for key := range endpointDb.Config {
+			variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", key, endpointDb.Config[key])
+		}
+	}
+
+	for key := range endpointDb.Features {
+		variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", key, endpointDb.Features[key])
+	}
+
+	// General
 	if _, ok := loadedVariables["got_url"]; !ok {
 		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "goterra_url", os.Getenv("GOT_PROXY"))
 	}
