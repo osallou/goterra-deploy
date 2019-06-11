@@ -146,7 +146,6 @@ func CheckAPIKey(apiKey string) (data terraUser.AuthData, err error) {
 	} else {
 		var tauthErr error
 		data, tauthErr = terraUser.Check(apiKey)
-
 		if tauthErr != nil {
 			err = errors.New("invalid api key")
 		} else {
