@@ -142,7 +142,7 @@ func CheckAPIKey(apiKey string) (data terraUser.AuthData, err error) {
 	err = nil
 	data = terraUser.AuthData{}
 	if apiKey == "" {
-		err = errors.New("missing X-API-KEY")
+		err = errors.New("missing X-API-Key")
 	} else {
 		var tauthErr error
 		data, tauthErr = terraUser.Check(apiKey)
@@ -263,7 +263,7 @@ func createToken(user terraUser.User) (tokenString string, err error) {
 
 // BindHandler gets API Key and returns a Token
 var BindHandler = func(w http.ResponseWriter, r *http.Request) {
-	data, err := CheckAPIKey(r.Header.Get("X-API-KEY"))
+	data, err := CheckAPIKey(r.Header.Get("X-API-Key"))
 	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
