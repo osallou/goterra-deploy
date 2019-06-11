@@ -1220,7 +1220,7 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 
 	if terraDeployUtils.IsMemberOfNS(nsCollection, nsID, userID) {
 		for key := range endpointDb.Config {
-			variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", key, endpointDb.Config[key])
+			variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", key, endpointDb.Config[key])
 		}
 		/*
 			// TODO manage other kinds
@@ -1257,8 +1257,12 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 	}
 
 	if _, ok := loadedVariables["got_url"]; !ok {
-		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "got_url", os.Getenv("GOT_PROXY"))
+		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "goterra_url", os.Getenv("GOT_PROXY"))
 	}
+
+	variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "goterra_application", app)
+	variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "goterra_namespace", nsID)
+
 	return variablesTf, appTf, nil
 }
 
