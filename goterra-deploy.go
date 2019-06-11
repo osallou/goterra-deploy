@@ -2,16 +2,9 @@ package main
 
 import (
 	"context"
-	"crypto/aes"
-	"crypto/cipher"
-	"crypto/md5"
-	"crypto/rand"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -19,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	terraConfig "github.com/osallou/goterra-lib/lib/config"
@@ -29,6 +21,8 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	mongo "go.mongodb.org/mongo-driver/mongo"
 	mongoOptions "go.mongodb.org/mongo-driver/mongo/options"
+
+	terraToken "github.com/osallou/goterra-lib/lib/token"
 
 	terraDeployUtils "github.com/osallou/goterra-deploy/lib"
 	// terraDb "github.com/osallou/goterra/lib/db"
@@ -53,6 +47,7 @@ var HomeHandler = func(w http.ResponseWriter, r *http.Request) {
 }
 
 // Claims contains JWT claims
+/*
 type Claims struct {
 	UID        string          `json:"uid"`
 	APIKey     string          `json:"apikey"`
@@ -60,7 +55,7 @@ type Claims struct {
 	Admin      bool            `json:"admin"`
 	Namespaces map[string]bool `json:"namespaces"`
 	jwt.StandardClaims
-}
+}*/
 
 // Recipe describe a recipe for an app
 type Recipe struct {
@@ -143,53 +138,61 @@ type EndPoint struct {
 }
 
 // CheckAPIKey check X-API-Key authorization content and returns user info
-func CheckAPIKey(apiKey string) (checkedUser terraUser.User, err error) {
+func CheckAPIKey(apiKey string) (data terraUser.AuthData, err error) {
 	err = nil
-	user := terraUser.User{}
+	data = terraUser.AuthData{}
 	if apiKey == "" {
 		err = errors.New("missing X-API-Key")
 	} else {
 		var tauthErr error
-		user, tauthErr = terraUser.Check(apiKey)
+		data, tauthErr = terraUser.Check(apiKey)
 
 		if tauthErr != nil {
 			err = errors.New("invalid api key")
 		} else {
-			user.Logged = true
+			data.User.Logged = true
 		}
 	}
-	log.Printf("[DEBUG] User logged: %s", user.UID)
-	return user, err
+	log.Printf("[DEBUG] User logged: %s", data.User.UID)
+	return data, err
 }
 
-// CheckToken checks JWT token
-func CheckToken(authToken string) (claims *Claims, err error) {
-	config := terraConfig.LoadConfig()
+// CheckToken checks Fernet token
+func CheckToken(authToken string) (user terraUser.User, err error) {
+	// config := terraConfig.LoadConfig()
 
 	tokenStr := strings.Replace(authToken, "Bearer", "", -1)
 	tokenStr = strings.TrimSpace(tokenStr)
 
-	data, err := base64.StdEncoding.DecodeString(tokenStr)
-	if err != nil {
-		fmt.Printf("Token error: %v\n", err)
-		return claims, errors.New("Invalid token")
+	msg, errMsg := terraToken.FernetDecode([]byte(tokenStr))
+	if errMsg != nil {
+		return user, errMsg
 	}
-	decodedToken := string(decrypt(data, config.Secret))
+	json.Unmarshal(msg, &user)
+	return user, nil
+	/*
+		data, err := base64.StdEncoding.DecodeString(tokenStr)
+		if err != nil {
+			fmt.Printf("Token error: %v\n", err)
+			return claims, errors.New("Invalid token")
+		}
+		decodedToken := string(decrypt(data, config.Secret))
 
-	claims = &Claims{}
-	token, err := jwt.ParseWithClaims(decodedToken, claims, func(token *jwt.Token) (interface{}, error) {
-		return []byte(config.Secret), nil
-	})
-	if err != nil || !token.Valid || claims.Audience != "goterra/deploy" {
-		fmt.Printf("Token error: %v\n", err)
-		return claims, errors.New("Invalid token")
-	}
-	fmt.Printf("DEBUG %+v\n", claims)
-	return claims, nil
+		claims = &Claims{}
+		token, err := jwt.ParseWithClaims(decodedToken, claims, func(token *jwt.Token) (interface{}, error) {
+			return []byte(config.Secret), nil
+		})
+		if err != nil || !token.Valid || claims.Audience != "goterra/deploy" {
+			fmt.Printf("Token error: %v\n", err)
+			return claims, errors.New("Invalid token")
+		}
+		fmt.Printf("DEBUG %+v\n", claims)
+		return claims, nil
+	*/
 }
 
 // encrypt and decrypt
-
+/*
 func createHash(key string) string {
 	hasher := md5.New()
 	hasher.Write([]byte(key))
@@ -228,10 +231,12 @@ func decrypt(data []byte, passphrase string) []byte {
 	}
 	return plaintext
 }
+*/
 
 // end of encrypt
 
 // createToken creates a JWT token for input user
+/*
 func createToken(user terraUser.User) (tokenString string, err error) {
 	config := terraConfig.LoadConfig()
 	mySigningKey := []byte(config.Secret)
@@ -254,11 +259,11 @@ func createToken(user terraUser.User) (tokenString string, err error) {
 	tokenString = base64.StdEncoding.EncodeToString(encrypt(tokenBytes, config.Secret))
 	return tokenString, err
 }
+*/
 
-// BindHandler gets API Key and returns a JWT Token
+// BindHandler gets API Key and returns a Token
 var BindHandler = func(w http.ResponseWriter, r *http.Request) {
-	user, err := CheckAPIKey(r.Header.Get("X-API-Key"))
-
+	data, err := CheckAPIKey(r.Header.Get("X-API-Key"))
 	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -266,15 +271,7 @@ var BindHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
-	token, err := createToken(user)
-	if err != nil {
-		w.Header().Add("Content-Type", "application/json")
-		w.WriteHeader(http.StatusUnauthorized)
-		respError := map[string]interface{}{"message": "failed to create token"}
-		json.NewEncoder(w).Encode(respError)
-		return
-	}
-	resp := map[string]interface{}{"token": token}
+	resp := map[string]interface{}{"token": data.Token}
 	w.Header().Add("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
