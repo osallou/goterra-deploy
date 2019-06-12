@@ -1238,9 +1238,11 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 		variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", key, endpointDb.Features[key])
 	}
 
+	config := terraConfig.LoadConfig()
+
 	// General
 	if _, ok := loadedVariables["got_url"]; !ok {
-		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "goterra_url", os.Getenv("GOT_PROXY"))
+		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "goterra_url", config.URL)
 	}
 
 	variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "goterra_application", app)
