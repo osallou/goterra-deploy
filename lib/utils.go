@@ -73,11 +73,12 @@ type RunAction struct {
 	ID     string `json:"id"`
 }
 
-func sendRunAction(action string, id string) error {
+// SendRunAction sends a message to rabbitmq exchange
+func SendRunAction(action string, id string) error {
 	config := terraConfig.LoadConfig()
 	if config.Amqp == "" {
 		fmt.Printf("[ERROR] no amqp defined\n")
-		return nil
+		return fmt.Errorf("No AMQP config found")
 	}
 	conn, err := amqp.Dial(config.Amqp)
 	if err != nil {

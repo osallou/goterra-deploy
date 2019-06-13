@@ -89,13 +89,17 @@ type Application struct {
 
 // Run represents a deployment info for an app
 type Run struct {
-	ID        primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	AppID     string             `json:"appID"` // Application id
-	Inputs    map[string]string  `json:"inputs"`
-	Status    string             `json:"status"`
-	Endpoint  string             `json:"endpoint"`
-	Namespace string             `json:"namespace"`
-	UID       string
+	ID         primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	AppID      string             `json:"appID"` // Application id
+	Inputs     map[string]string  `json:"inputs"`
+	Status     string             `json:"status"`
+	Endpoint   string             `json:"endpoint"`
+	Namespace  string             `json:"namespace"`
+	UID        string
+	Start      int64         `json:"start"`
+	Duration   time.Duration `json:"duration"`
+	Outputs    string        `json:"outputs"`
+	Deployment string        `json:"deployment"`
 }
 
 const (
@@ -1314,15 +1318,6 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
-	/*
-		if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
-			w.Header().Add("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			respError := map[string]interface{}{"message": "not a namespace member"}
-			json.NewEncoder(w).Encode(respError)
-			return
-		}
-	*/
 
 	run := &Run{}
 	err = json.NewDecoder(r.Body).Decode(run)
@@ -1350,6 +1345,8 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	run.AppID = vars["application"]
 	run.UID = claims.UID
 	run.Namespace = nsID
+	run.Start = time.Now().Unix()
+	run.Status = "pending"
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	newrun, err := runCollection.InsertOne(ctx, run)
@@ -1381,7 +1378,14 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO send for execution
+	amqpErr := terraDeployUtils.SendRunAction("deploy", newrun.InsertedID.(primitive.ObjectID).Hex())
+	if amqpErr != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": fmt.Sprintf("failed to deploy:%s", amqpErr)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
 
 	resp := map[string]interface{}{"run": newrun.InsertedID}
 	w.Header().Add("Content-Type", "application/json")
