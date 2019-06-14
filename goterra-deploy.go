@@ -74,17 +74,18 @@ type Recipe struct {
 
 // Application descripe an app to deploy
 type Application struct {
-	ID          primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Public      bool               `json:"public"`
-	Recipes     []string           `json:"recipes"`
-	Namespace   string             `json:"namespace"`
-	Templates   map[string]string  `json:"templates"` // One template per endpoint type (openstack, ...)
-	Inputs      map[string]string  `json:"inputs"`    // expected inputs varname, label
-	Image       string             `json:"image"`
-	Timestamp   int64              `json:"ts"`
-	Previous    string             `json:"prev"` // Previous app id, for versioning
+	ID           primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	Name         string             `json:"name"`
+	Description  string             `json:"description"`
+	Public       bool               `json:"public"`
+	Recipes      []string           `json:"recipes"`
+	Namespace    string             `json:"namespace"`
+	Templates    map[string]string  `json:"templates"` // One template per endpoint type (openstack, ...)
+	Inputs       map[string]string  `json:"inputs"`    // expected inputs varname, label
+	SecretInputs map[string]string  `json:"secrets"`   // Secret variables (password, etc.) will be given to terraform as env variables
+	Image        string             `json:"image"`
+	Timestamp    int64              `json:"ts"`
+	Previous     string             `json:"prev"` // Previous app id, for versioning
 }
 
 // Run represents a deployment info for an app
