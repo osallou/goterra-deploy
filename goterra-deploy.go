@@ -70,6 +70,7 @@ type Recipe struct {
 	Timestamp    int64              `json:"ts"`
 	Previous     string             `json:"prev"`   // Previous recipe id, for versioning
 	Inputs       map[string]string  `json:"inputs"` // List of input variables needed when executing at app for this recipe, those variables should be sent as env_XX if XX is in requires: varname,label
+	Tags         []string           `json:"tags"`
 }
 
 // Application descripe an app to deploy
