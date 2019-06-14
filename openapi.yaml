@@ -52,6 +52,12 @@ components:
           type: string
         parent:
           type: string
+        tags:
+          type: array
+          items:
+            type: string
+        previous:
+          type: string
     Application:
       type: object
       properties:
