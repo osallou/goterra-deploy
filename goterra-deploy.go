@@ -1480,6 +1480,76 @@ var GetRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(rundb)
 }
 
+// DeleteRunHandler asks to destroy resources
+var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	runID, _ := primitive.ObjectIDFromHex(vars["run"])
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	run := &Run{}
+	err = json.NewDecoder(r.Body).Decode(run)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to decode message"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"_id":       runID,
+		"namespace": nsID,
+	}
+	var rundb Run
+	err = runCollection.FindOne(ctx, ns).Decode(&rundb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "run not found"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	rundb.SensitiveInputs = nil
+
+	if rundb.UID != claims.UID && !claims.Admin {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not allowed to access this resource"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	sensitiveInputs := make(map[string]string)
+	if run.SensitiveInputs != nil {
+		for key, val := range run.SensitiveInputs {
+			sensitiveInputs[key] = val
+		}
+	}
+
+	amqpErr := terraDeployUtils.SendRunAction("destroy", vars["run"], sensitiveInputs)
+	if amqpErr != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": fmt.Sprintf("failed to deploy:%s", amqpErr)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(rundb)
+}
+
 // End of Run ************************************
 
 func main() {
@@ -1542,12 +1612,12 @@ func main() {
 	r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST")                           // deploy app
 	r.HandleFunc("/deploy/ns/{id}/run/{run}", GetRunHandler).Methods("GET")                                       // get run info
 	r.HandleFunc("/deploy/ns/{id}/run/{application}/terraform", CreateRunTerraformHandlerHandler).Methods("POST") //get terraform templates for a run but do not deploy app
-
-	// r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")  // stop run
+	r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")                                 // stop run
 
 	r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")           // get ns endpoints
 	r.HandleFunc("/deploy/ns/{id}/endpoint", CreateNSEndpointHandler).Methods("POST")        // add endpoint
 	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", GetNSEndpointHandler).Methods("GET") // get endpoint
+	// TODO allow user to add some encrypted secrets to append to secrets in msg
 	// r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", DeleteNSEndpointHandler).Methods("DELETE")  // delete endpoint
 
 	handler := cors.Default().Handler(r)
