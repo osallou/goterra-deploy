@@ -98,10 +98,10 @@ type Run struct {
 	Endpoint        string             `json:"endpoint"`
 	Namespace       string             `json:"namespace"`
 	UID             string
-	Start           int64         `json:"start"`
-	Duration        time.Duration `json:"duration"`
-	Outputs         string        `json:"outputs"`
-	Deployment      string        `json:"deployment"`
+	Start           int64   `json:"start"`
+	Duration        float64 `json:"duration"`
+	Outputs         string  `json:"outputs"`
+	Deployment      string  `json:"deployment"`
 }
 
 const (
