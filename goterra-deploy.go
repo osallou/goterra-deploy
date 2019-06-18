@@ -761,7 +761,7 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 		} else {
 			possibleBaseImagesNew = false
 			for _, availableImage := range parentBaseImages {
-				if _, ok := possibleBaseImagesSet[availableImage]; !ok {
+				if _, ok := possibleBaseImagesSet[availableImage]; ok {
 					possibleBaseImages = append(possibleBaseImages, availableImage)
 					gotACommonBaseImage = true
 				}
