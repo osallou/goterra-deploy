@@ -69,12 +69,13 @@ func IsMemberOfNS(coll *mongo.Collection, ns string, uid string) bool {
 // action: apply or destroy
 // id: identifier of the run
 type RunAction struct {
-	Action string `json:"action"`
-	ID     string `json:"id"`
+	Action  string            `json:"action"`
+	ID      string            `json:"id"`
+	Secrets map[string]string `json:"secrets"`
 }
 
 // SendRunAction sends a message to rabbitmq exchange
-func SendRunAction(action string, id string) error {
+func SendRunAction(action string, id string, secrets map[string]string) error {
 	config := terraConfig.LoadConfig()
 	if config.Amqp == "" {
 		fmt.Printf("[ERROR] no amqp defined\n")
@@ -107,7 +108,7 @@ func SendRunAction(action string, id string) error {
 		return err
 	}
 
-	run := &RunAction{Action: action, ID: id}
+	run := &RunAction{Action: action, ID: id, Secrets: secrets}
 	body, _ := json.Marshal(run)
 	err = ch.Publish(
 		"gotrun", // exchange

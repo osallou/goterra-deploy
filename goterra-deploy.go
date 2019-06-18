@@ -91,17 +91,18 @@ type Application struct {
 
 // Run represents a deployment info for an app
 type Run struct {
-	ID         primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	AppID      string             `json:"appID"` // Application id
-	Inputs     map[string]string  `json:"inputs"`
-	Status     string             `json:"status"`
-	Endpoint   string             `json:"endpoint"`
-	Namespace  string             `json:"namespace"`
-	UID        string
-	Start      int64         `json:"start"`
-	Duration   time.Duration `json:"duration"`
-	Outputs    string        `json:"outputs"`
-	Deployment string        `json:"deployment"`
+	ID              primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	AppID           string             `json:"appID"` // Application id
+	Inputs          map[string]string  `json:"inputs"`
+	SensitiveInputs map[string]string  `json:"secretinputs"` // Those data are never sent back, encrypted and executed via env vars
+	Status          string             `json:"status"`
+	Endpoint        string             `json:"endpoint"`
+	Namespace       string             `json:"namespace"`
+	UID             string
+	Start           int64         `json:"start"`
+	Duration        time.Duration `json:"duration"`
+	Outputs         string        `json:"outputs"`
+	Deployment      string        `json:"deployment"`
 }
 
 const (
@@ -1248,6 +1249,12 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 		loadedVariables[key] = true
 	}
 
+	// SensitiveInputs are declared but values are added via env variables
+	for key := range run.SensitiveInputs {
+		variablesTf += fmt.Sprintf("variable %s {\n    default=\"\"\n}\n", key)
+		loadedVariables[key] = true
+	}
+
 	imageID := appDb.Image
 	if val, ok := endpointDb.Images[appDb.Image]; ok {
 		imageID = val
@@ -1367,12 +1374,21 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	// Add api key
 	variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "goterra_apikey", claims.APIKey)
 
+	sensitiveInputs := make(map[string]string)
+	if run.SensitiveInputs != nil {
+		for key, val := range run.SensitiveInputs {
+			sensitiveInputs[key] = val
+		}
+	}
+
 	config := terraConfig.LoadConfig()
 	run.AppID = vars["application"]
 	run.UID = claims.UID
 	run.Namespace = nsID
 	run.Start = time.Now().Unix()
 	run.Status = "pending"
+	// Clear sensitive inputs
+	run.SensitiveInputs = make(map[string]string)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	newrun, err := runCollection.InsertOne(ctx, run)
@@ -1404,7 +1420,7 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	amqpErr := terraDeployUtils.SendRunAction("deploy", newrun.InsertedID.(primitive.ObjectID).Hex())
+	amqpErr := terraDeployUtils.SendRunAction("deploy", newrun.InsertedID.(primitive.ObjectID).Hex(), sensitiveInputs)
 	if amqpErr != nil {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -1419,6 +1435,50 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Location", strings.Join(remote, "/"))
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(resp)
+}
+
+// GetRunHandler get some info about run
+var GetRunHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	runID, _ := primitive.ObjectIDFromHex(vars["run"])
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"_id":       runID,
+		"namespace": nsID,
+	}
+	var rundb Run
+	err = runCollection.FindOne(ctx, ns).Decode(&rundb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "run not found"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	rundb.SensitiveInputs = nil
+
+	if rundb.UID != claims.UID && !claims.Admin {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not allowed to access this resource"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	json.NewEncoder(w).Encode(rundb)
 }
 
 // End of Run ************************************
@@ -1480,8 +1540,8 @@ func main() {
 	// r.HandleFunc("/deploy/recipe", GetPublicRecipesHandler).Methods("GET")  //get public recipes
 	// r.HandleFunc("/deploy/app", GetPublicAppsHandler).Methods("GET")  //get public apps
 
-	r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST") // deploy app
-	// r.HandleFunc("/deploy/ns/{id}/run/{run}", GetRunHandler).Methods("GET")  // get run info
+	r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST")                           // deploy app
+	r.HandleFunc("/deploy/ns/{id}/run/{run}", GetRunHandler).Methods("GET")                                       // get run info
 	r.HandleFunc("/deploy/ns/{id}/run/{application}/terraform", CreateRunTerraformHandlerHandler).Methods("POST") //get terraform templates for a run but do not deploy app
 
 	// r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")  // stop run
