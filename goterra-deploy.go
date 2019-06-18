@@ -65,7 +65,7 @@ type Recipe struct {
 	Script       string             `json:"script"`
 	Public       bool               `json:"public"`
 	Namespace    string             `json:"namespace"`
-	BaseImage    string             `json:"base"`
+	BaseImages   []string           `json:"base"`
 	ParentRecipe string             `json:"parent"`
 	Timestamp    int64              `json:"ts"`
 	Previous     string             `json:"prev"`   // Previous recipe id, for versioning
@@ -735,8 +735,12 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	baseImage := ""
+	possibleBaseImagesNew := true
+	possibleBaseImagesSet := make(map[string]bool, 0)
+	possibleBaseImages := make([]string, 0)
+
 	for _, rec := range data.Recipes {
-		parentBaseImage, parentErr := checkRecipeImage(rec, data.Namespace)
+		parentBaseImages, parentErr := checkRecipeImage(rec, data.Namespace)
 		if parentErr != nil {
 			w.Header().Add("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
@@ -745,19 +749,39 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if baseImage == "" {
-			baseImage = parentBaseImage
+		gotACommonBaseImage := false
+		// populating for first recipe
+		if possibleBaseImagesNew {
+			gotACommonBaseImage = true
+			possibleBaseImages = append(possibleBaseImages, parentBaseImages...)
+			for _, availableImage := range parentBaseImages {
+				possibleBaseImagesNew = false
+				possibleBaseImagesSet[availableImage] = true
+			}
 		} else {
-			if baseImage != parentBaseImage {
-				w.Header().Add("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				respError := map[string]interface{}{"message": fmt.Sprintf("recipes using different base images: %s vs %s", baseImage, parentBaseImage)}
-				json.NewEncoder(w).Encode(respError)
-				return
+			possibleBaseImagesNew = false
+			for _, availableImage := range parentBaseImages {
+				if _, ok := possibleBaseImagesSet[availableImage]; !ok {
+					possibleBaseImages = append(possibleBaseImages, availableImage)
+					gotACommonBaseImage = true
+				}
 			}
 		}
 
+		if !gotACommonBaseImage {
+			// No common base image in recipes
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": fmt.Sprintf("recipes using different base images")}
+			json.NewEncoder(w).Encode(respError)
+			return
+		}
+
 	}
+
+	// We may have multiple common base image for recipes, take first
+	baseImage = possibleBaseImages[0]
+
 	if baseImage == "" {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
@@ -788,7 +812,7 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 }
 
 // checkRecipeImage checks (sub)recipe exists, and is public or authorized, returns base image of recipe
-func checkRecipeImage(recipe string, ns string) (string, error) {
+func checkRecipeImage(recipe string, ns string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -799,22 +823,22 @@ func checkRecipeImage(recipe string, ns string) (string, error) {
 	var recdb Recipe
 	recerr := recipeCollection.FindOne(ctx, recfilter).Decode(&recdb)
 	if recerr == mongo.ErrNoDocuments {
-		return "", fmt.Errorf("no recipe found %s", recipe)
+		return nil, fmt.Errorf("no recipe found %s", recipe)
 	}
 	if !recdb.Public && recdb.Namespace != ns {
-		return "", fmt.Errorf("recipe is not public or in namespace %s", recipe)
+		return nil, fmt.Errorf("recipe is not public or in namespace %s", recipe)
 	}
 	if recdb.ParentRecipe != "" {
 		parentImage, err := checkRecipeImage(recdb.ParentRecipe, ns)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		return parentImage, nil
 	}
-	if recdb.BaseImage == "" {
-		return "", fmt.Errorf("recipe has no base image nor parent recipe")
+	if recdb.BaseImages == nil || len(recdb.BaseImages) == 0 {
+		return nil, fmt.Errorf("recipe has no base image nor parent recipe")
 	}
-	return recdb.BaseImage, nil
+	return recdb.BaseImages, nil
 
 }
 
@@ -937,7 +961,7 @@ func getRecipeInputs(recipe string, ns string) (map[string]string, error) {
 		}
 		return recdb.Inputs, nil
 	}
-	if recdb.BaseImage == "" {
+	if recdb.BaseImages == nil || len(recdb.BaseImages) == 0 {
 		return nil, fmt.Errorf("recipe has no base image nor parent recipe")
 	}
 	return recdb.Inputs, nil
