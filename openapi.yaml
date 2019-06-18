@@ -187,6 +187,11 @@ components:
           type: object
           additionalProperties:
             type: string
+        secretinputs:
+          description: "inputs expected by app/endpoint for deployment, those data are not stored in database nor files and only used at deployment time"
+          type: object
+          additionalProperties:
+            type: string
 paths:
   /deploy:
     get:
