@@ -88,6 +88,13 @@ type Application struct {
 	Previous    string             `json:"prev"` // Previous app id, for versioning
 }
 
+// Event represent an action (deploy, destroy, etc.) on a run (historical data)
+type Event struct {
+	TS      int64  `json:"ts"`
+	Action  string `json:"action"`
+	Success bool   `json:"success"`
+}
+
 // Run represents a deployment info for an app
 type Run struct {
 	ID              primitive.ObjectID `json:"id" bson:"_id,omitempty"`
@@ -102,6 +109,7 @@ type Run struct {
 	Duration        float64 `json:"duration"`
 	Outputs         string  `json:"outputs"`
 	Deployment      string  `json:"deployment"`
+	Events          []Event `json:"events"`
 }
 
 const (
@@ -406,7 +414,7 @@ var UpdateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 
 	err = nsCollection.FindOneAndReplace(ctx, ns, newns).Decode(&nsdb)
 	if err != nil {
-		log.Printf("[ERROR] faild to update namespace %v", err)
+		log.Printf("[ERROR] failed to update namespace %v", err)
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		respError := map[string]interface{}{"message": "failed to update namespace"}
@@ -1388,6 +1396,7 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	run.Status = "pending"
 	// Clear sensitive inputs
 	run.SensitiveInputs = make(map[string]string)
+	run.Events = make([]Event, 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	newrun, err := runCollection.InsertOne(ctx, run)
@@ -1613,6 +1622,7 @@ func main() {
 	r.HandleFunc("/deploy/ns/{id}/run/{run}", GetRunHandler).Methods("GET")                                       // get run info
 	r.HandleFunc("/deploy/ns/{id}/run/{application}/terraform", CreateRunTerraformHandlerHandler).Methods("POST") //get terraform templates for a run but do not deploy app
 	r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")                                 // stop run
+	//r.HandleFunc("/deploy/ns/{id}/run", GetNSRunsHandler).Methods("GET")  // Get all runs for this NS                                      // get run info
 
 	r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")           // get ns endpoints
 	r.HandleFunc("/deploy/ns/{id}/endpoint", CreateNSEndpointHandler).Methods("POST")        // add endpoint
