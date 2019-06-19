@@ -989,15 +989,32 @@ paths:
               $ref: '#/components/schemas/EndpointSecret' 
       responses:
         '200':
-          description: endpoint info
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  endpoint:
-                    type: object
+          description: secret updated
         '403':
           description: invalid token
         '404':
-          description: run id not found
+          description: secret not found
+    delete:
+      security:
+        - JWTToken: []
+      summary: set crypted password for endpoint [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: endpoint
+          required: true
+          schema:
+            type: string
+          description: id of the endpoint
+      responses:
+        '200':
+          description: secret removed
+        '403':
+          description: invalid token
+        '404':
+          description: secret not found

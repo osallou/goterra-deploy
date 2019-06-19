@@ -1133,6 +1133,42 @@ func decryptData(cryptedData string) (string, error) {
 	return string(plaintext), nil
 }
 
+// DeleteNSEndpointSecretHandler remove user secret for endpoint
+var DeleteNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	endpointID := vars["endpoint"]
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"uid":       claims.UID,
+		"endpoint":  endpointID,
+		"namespace": nsID,
+	}
+
+	_, errDel := endpointCollection.DeleteOne(ctx, ns)
+	if errDel != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Could not delete secret: %s", errDel)}
+		json.NewEncoder(w).Encode(respError)
+		return
+
+	}
+	w.Header().Add("Content-Type", "application/json")
+	respError := map[string]interface{}{"message": "secret removed"}
+	json.NewEncoder(w).Encode(respError)
+}
+
 // CreateNSEndpointSecretHandler create/update user password for defined endpoint, password is encrypted
 var CreateNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -1813,10 +1849,11 @@ func main() {
 	r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")                                 // stop run
 	//r.HandleFunc("/deploy/ns/{id}/run", GetNSRunsHandler).Methods("GET")  // Get all runs for this NS                                      // get run info
 
-	r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")                           // get ns endpoints
-	r.HandleFunc("/deploy/ns/{id}/endpoint", CreateNSEndpointHandler).Methods("POST")                        // add endpoint
-	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", GetNSEndpointHandler).Methods("GET")                 // get endpoint
-	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", CreateNSEndpointSecretHandler).Methods("PUT") // create/update user secret for this endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")                              // get ns endpoints
+	r.HandleFunc("/deploy/ns/{id}/endpoint", CreateNSEndpointHandler).Methods("POST")                           // add endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", GetNSEndpointHandler).Methods("GET")                    // get endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", CreateNSEndpointSecretHandler).Methods("PUT")    // create/update user secret for this endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", DeleteNSEndpointSecretHandler).Methods("DELETE") // delete user secret for this endpoint
 
 	// r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", DeleteNSEndpointHandler).Methods("DELETE")  // delete endpoint
 
