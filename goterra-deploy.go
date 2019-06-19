@@ -1714,6 +1714,27 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if val, ok := sensitiveInputs["password"]; !ok || val == "" {
+		secretEndpoint := &EndPointSecret{}
+		ctxSecret, cancelSecret := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelSecret()
+		secretFilter := bson.M{
+			"endpoint": run.Endpoint,
+			"uid":      claims.UID,
+		}
+		errSecret := endpointSecretCollection.FindOne(ctxSecret, secretFilter).Decode(secretEndpoint)
+		if errSecret == nil {
+			log.Printf("Using user secret for endpoint")
+			decodedPassword, decodedErr := decryptData(secretEndpoint.Password)
+			if decodedErr == nil {
+				log.Printf("[ERROR] Failed to decode user %s password for endpoint %s", claims.UID, run.Endpoint)
+				sensitiveInputs["password"] = decodedPassword
+			}
+		} else {
+			log.Printf("password provided in run, skipping secret checks")
+		}
+	}
+
 	amqpErr := terraDeployUtils.SendRunAction("destroy", vars["run"], sensitiveInputs)
 	if amqpErr != nil {
 		w.Header().Add("Content-Type", "application/json")
