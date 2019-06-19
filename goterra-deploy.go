@@ -2,9 +2,16 @@ package main
 
 import (
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/md5"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -37,6 +44,7 @@ var nsCollection *mongo.Collection
 var recipeCollection *mongo.Collection
 var appCollection *mongo.Collection
 var endpointCollection *mongo.Collection
+var endpointSecretCollection *mongo.Collection
 var runCollection *mongo.Collection
 
 // HomeHandler manages base entrypoint
@@ -1059,6 +1067,139 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 
 // Endpoints *************************************
 
+type EndPointSecret struct {
+	UID       string `json:"uid"`
+	Password  string `json:"password"`
+	EndPoint  string `json:"endpoint"`
+	Namespace string `json:"namespace"`
+}
+
+func cryptData(data string) (string, error) {
+	config := terraConfig.LoadConfig()
+
+	//hash := hmac.New(sha256.New, []byte(config.Fernet[0]))
+	//secret := hex.EncodeToString(hash.Sum(nil))
+	hasher := md5.New()
+	hasher.Write([]byte(config.Fernet[0]))
+	secret := hex.EncodeToString(hasher.Sum(nil))
+
+	block, cipherErr := aes.NewCipher([]byte(secret))
+	if cipherErr != nil {
+		log.Printf("Failed secret cypher: %s", cipherErr)
+		return "", cipherErr
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
+		return "", err
+	}
+	ciphertext := gcm.Seal(nonce, nonce, []byte(data), nil)
+	cryptedData := base64.StdEncoding.EncodeToString(ciphertext)
+	return cryptedData, nil
+
+}
+
+func decryptData(cryptedData string) (string, error) {
+	config := terraConfig.LoadConfig()
+
+	data, _ := base64.StdEncoding.DecodeString(cryptedData)
+
+	//hash := hmac.New(sha256.New, []byte(config.Fernet[0]))
+	// secret := hex.EncodeToString(hash.Sum(nil))
+	//secret := base64.StdEncoding.EncodeToString(hash.Sum(nil))
+	hasher := md5.New()
+	hasher.Write([]byte(config.Fernet[0]))
+	secret := hex.EncodeToString(hasher.Sum(nil))
+
+	key := []byte(secret)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := gcm.NonceSize()
+	// byteData := []byte(data)
+	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plaintext), nil
+}
+
+// CreateNSEndpointSecretHandler create/update user password for defined endpoint, password is encrypted
+var CreateNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	endpointID := vars["endpoint"]
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	data := &EndPointSecret{}
+	err = json.NewDecoder(r.Body).Decode(data)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to decode message"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"uid":       claims.UID,
+		"endpoint":  endpointID,
+		"namespace": nsID,
+	}
+
+	cryptedPwd, cryptErr := cryptData(data.Password)
+	if cryptErr != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": fmt.Sprintf("failed to crypt: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	var endpointdb EndPointSecret
+	err = endpointCollection.FindOne(ctx, ns).Decode(&endpointdb)
+	if err == mongo.ErrNoDocuments {
+		// create
+		secret := &EndPointSecret{
+			UID:       claims.UID,
+			EndPoint:  endpointID,
+			Password:  cryptedPwd,
+			Namespace: nsID,
+		}
+		endpointSecretCollection.InsertOne(ctx, secret)
+
+	} else {
+		// update
+		newsecret := bson.M{
+			"$set": bson.M{
+				"password": cryptedPwd,
+			},
+		}
+		endpointSecretCollection.FindOneAndUpdate(ctx, ns, newsecret)
+	}
+	w.Header().Add("Content-Type", "application/json")
+	respError := map[string]interface{}{"message": "password set for endpoint"}
+	json.NewEncoder(w).Encode(respError)
+}
+
 // CreateNSEndpointHandler creates a new endpoint for namespace
 var CreateNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -1289,6 +1430,11 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "goterra_url", config.URL)
 	}
 
+	// Add password if not already defined
+	if _, ok := loadedVariables["password"]; !ok {
+		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "password", "")
+	}
+
 	variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "goterra_application", app)
 	variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "goterra_namespace", nsID)
 
@@ -1385,6 +1531,27 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	if run.SensitiveInputs != nil {
 		for key, val := range run.SensitiveInputs {
 			sensitiveInputs[key] = val
+		}
+	}
+
+	if val, ok := sensitiveInputs["password"]; !ok || val == "" {
+		secretEndpoint := &EndPointSecret{}
+		ctxSecret, cancelSecret := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelSecret()
+		secretFilter := bson.M{
+			"endpoint": run.Endpoint,
+			"uid":      claims.UID,
+		}
+		errSecret := endpointSecretCollection.FindOne(ctxSecret, secretFilter).Decode(secretEndpoint)
+		if errSecret == nil {
+			log.Printf("Using user secret for endpoint")
+			decodedPassword, decodedErr := decryptData(secretEndpoint.Password)
+			if decodedErr == nil {
+				log.Printf("[ERROR] Failed to decode user %s password for endpoint %s", claims.UID, run.Endpoint)
+				sensitiveInputs["password"] = decodedPassword
+			}
+		} else {
+			log.Printf("password provided in run, skipping secret checks")
 		}
 	}
 
@@ -1588,6 +1755,7 @@ func main() {
 	recipeCollection = mongoClient.Database(config.Mongo.DB).Collection("recipe")
 	appCollection = mongoClient.Database(config.Mongo.DB).Collection("application")
 	endpointCollection = mongoClient.Database(config.Mongo.DB).Collection("endpoint")
+	endpointSecretCollection = mongoClient.Database(config.Mongo.DB).Collection("endpointsecrets")
 	runCollection = mongoClient.Database(config.Mongo.DB).Collection("run")
 
 	// userCollection = mongoClient.Database(config.Mongo.DB).Collection("users")
@@ -1624,10 +1792,11 @@ func main() {
 	r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")                                 // stop run
 	//r.HandleFunc("/deploy/ns/{id}/run", GetNSRunsHandler).Methods("GET")  // Get all runs for this NS                                      // get run info
 
-	r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")           // get ns endpoints
-	r.HandleFunc("/deploy/ns/{id}/endpoint", CreateNSEndpointHandler).Methods("POST")        // add endpoint
-	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", GetNSEndpointHandler).Methods("GET") // get endpoint
-	// TODO allow user to add some encrypted secrets to append to secrets in msg
+	r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")                           // get ns endpoints
+	r.HandleFunc("/deploy/ns/{id}/endpoint", CreateNSEndpointHandler).Methods("POST")                        // add endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", GetNSEndpointHandler).Methods("GET")                 // get endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", CreateNSEndpointSecretHandler).Methods("PUT") // create/update user secret for this endpoint
+
 	// r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", DeleteNSEndpointHandler).Methods("DELETE")  // delete endpoint
 
 	handler := cors.Default().Handler(r)
