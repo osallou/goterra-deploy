@@ -171,6 +171,11 @@ components:
         shared_storage:
           type: boolean
           default: false
+    EndpointSecret:
+      type: object
+      properties:
+        password:
+          type: string
     Run:
       type: object
       properties:
@@ -959,3 +964,40 @@ paths:
           description: invalid token
         '404':
           description: endpoint id not found
+  /deploy/ns/{id}/endpoint/{endpoint}/secret:
+    put:
+      security:
+        - JWTToken: []
+      summary: set crypted password for endpoint [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: endpoint
+          required: true
+          schema:
+            type: string
+          description: id of the endpoint
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EndpointSecret' 
+      responses:
+        '200':
+          description: endpoint info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  endpoint:
+                    type: object
+        '403':
+          description: invalid token
+        '404':
+          description: run id not found
