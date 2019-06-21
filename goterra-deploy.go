@@ -1879,7 +1879,6 @@ func main() {
 		AllowCredentials: true,
 		AllowedHeaders:   []string{"Authorization"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
-		Debug:            true,
 	})
 	handler := c.Handler(r)
 
