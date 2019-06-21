@@ -769,9 +769,9 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 		// populating for first recipe
 		if possibleBaseImagesNew {
 			gotACommonBaseImage = true
+			possibleBaseImagesNew = false
 			possibleBaseImages = append(possibleBaseImages, parentBaseImages...)
 			for _, availableImage := range parentBaseImages {
-				possibleBaseImagesNew = false
 				possibleBaseImagesSet[availableImage] = true
 			}
 		} else {
@@ -796,7 +796,9 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// We may have multiple common base image for recipes, take first
-	baseImage = possibleBaseImages[0]
+	if len(possibleBaseImages) > 0 {
+		baseImage = possibleBaseImages[0]
+	}
 
 	if baseImage == "" {
 		w.Header().Add("Content-Type", "application/json")
@@ -805,6 +807,7 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
+
 	data.Image = baseImage
 
 	newapp, err := appCollection.InsertOne(ctx, data)
