@@ -10,7 +10,13 @@ mongodb, goterra-auth
 
 ## Run
 
-    GOT_CONFIG=goterra-deploy.yml GOT_PROXY_AUTH=http://localhost:8001 goterra-deploy
+    GOT_CONFIG=goterra-deploy.yml GOT_PROXY_AUTH=http://localhost:8001 goterra-deploy 
+
+## Special inputs
+
+Some specific run input variables names are reserved:
+
+* ssh_pub_key: if present, pub key will be added to authorized_keys
 
 ## Status
 

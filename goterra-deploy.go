@@ -1874,7 +1874,14 @@ func main() {
 
 	// r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", DeleteNSEndpointHandler).Methods("DELETE")  // delete endpoint
 
-	handler := cors.Default().Handler(r)
+	c := cors.New(cors.Options{
+		AllowedOrigins:   []string{"*"},
+		AllowCredentials: true,
+		AllowedHeaders:   []string{"Authorization"},
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
+		Debug:            true,
+	})
+	handler := c.Handler(r)
 
 	loggedRouter := handlers.LoggingHandler(os.Stdout, handler)
 
