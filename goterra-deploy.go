@@ -1631,6 +1631,20 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if run.Inputs != nil {
+		runInputs, runInputsErr := json.Marshal(run.Inputs)
+		if runInputsErr == nil {
+			errEnvFile := ioutil.WriteFile(runPath+"/goterra.env", runInputs, 0644)
+			if errEnvFile != nil {
+				w.Header().Add("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				respError := map[string]interface{}{"message": "failed to write goterra.env"}
+				json.NewEncoder(w).Encode(respError)
+				return
+			}
+		}
+	}
+
 	amqpErr := terraDeployUtils.SendRunAction("deploy", newrun.InsertedID.(primitive.ObjectID).Hex(), sensitiveInputs)
 	if amqpErr != nil {
 		w.Header().Add("Content-Type", "application/json")
