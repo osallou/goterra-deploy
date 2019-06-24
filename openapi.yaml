@@ -174,8 +174,10 @@ components:
     EndpointSecret:
       type: object
       properties:
+        name:
+          type: string # endpoint user name => var user_name
         password:
-          type: string
+          type: string # endpoint user password => var password
     Run:
       type: object
       properties:

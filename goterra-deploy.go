@@ -1072,6 +1072,7 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 
 type EndPointSecret struct {
 	UID       string `json:"uid"`
+	UserName  string `json:"name"`
 	Password  string `json:"password"`
 	EndPoint  string `json:"endpoint"`
 	Namespace string `json:"namespace"`
@@ -1200,6 +1201,7 @@ var CreateNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request)
 	defer cancel()
 	ns := bson.M{
 		"uid":       claims.UID,
+		"name":      data.UserName,
 		"endpoint":  endpointID,
 		"namespace": nsID,
 	}
@@ -1229,6 +1231,7 @@ var CreateNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request)
 		// update
 		newsecret := bson.M{
 			"$set": bson.M{
+				"name":     data.UserName,
 				"password": cryptedPwd,
 			},
 		}
@@ -1573,7 +1576,12 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if val, ok := sensitiveInputs["password"]; !ok || val == "" {
+	// Is user_name defined in run inputs?
+	userVal, userOk := run.Inputs["user_name"]
+	// Is password defined in sensitive inputs?
+	passwordVal, passwordOk := sensitiveInputs["password"]
+	// If either is not provided, check for predefined values in endpointsecret in related endpoint
+	if !passwordOk || !userOk || userVal == "" || passwordVal == "" {
 		secretEndpoint := &EndPointSecret{}
 		ctxSecret, cancelSecret := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancelSecret()
@@ -1584,15 +1592,45 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		errSecret := endpointSecretCollection.FindOne(ctxSecret, secretFilter).Decode(secretEndpoint)
 		if errSecret == nil {
 			log.Printf("Using user secret for endpoint")
-			decodedPassword, decodedErr := decryptData(secretEndpoint.Password)
-			if decodedErr == nil {
-				log.Printf("[ERROR] Failed to decode user %s password for endpoint %s", claims.UID, run.Endpoint)
-				sensitiveInputs["password"] = decodedPassword
+			if !passwordOk || passwordVal == "" {
+				decodedPassword, decodedErr := decryptData(secretEndpoint.Password)
+				if decodedErr == nil {
+					log.Printf("[ERROR] Failed to decode user %s password for endpoint %s", claims.UID, run.Endpoint)
+					sensitiveInputs["password"] = decodedPassword
+				}
+			}
+			// If no user_name provided, use one defined in endpoint secret
+			if !userOk || userVal == "" {
+				variablesTf += fmt.Sprintf("\nvariable %s {\n    default=\"%s\"\n}\n", "user_name", secretEndpoint.UserName)
+
 			}
 		} else {
-			log.Printf("password provided in run, skipping secret checks")
+			log.Printf("no endpoint secret defined")
 		}
 	}
+
+	/*
+		if val, ok := sensitiveInputs["password"]; !ok || val == "" {
+			secretEndpoint := &EndPointSecret{}
+			ctxSecret, cancelSecret := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancelSecret()
+			secretFilter := bson.M{
+				"endpoint": run.Endpoint,
+				"uid":      claims.UID,
+			}
+			errSecret := endpointSecretCollection.FindOne(ctxSecret, secretFilter).Decode(secretEndpoint)
+			if errSecret == nil {
+				log.Printf("Using user secret for endpoint")
+				decodedPassword, decodedErr := decryptData(secretEndpoint.Password)
+				if decodedErr == nil {
+					log.Printf("[ERROR] Failed to decode user %s password for endpoint %s", claims.UID, run.Endpoint)
+					sensitiveInputs["password"] = decodedPassword
+				}
+			} else {
+				log.Printf("password provided in run, skipping secret checks")
+			}
+		}
+	*/
 
 	config := terraConfig.LoadConfig()
 	run.AppID = vars["application"]
