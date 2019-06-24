@@ -1020,3 +1020,33 @@ paths:
           description: invalid token
         '404':
           description: secret not found
+  /deploy/run:
+    get:
+      security:
+        - JWTToken: []
+      summary: get user runs [member]
+      parameters:
+        - in: query
+          name: skip
+          schema:
+            type: number
+          description: skip results
+        - in: query
+          name: limit
+          schema:
+            type: number
+          description: number of runs to return
+      responses:
+        '200':
+          description: endpoint info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  endpoint:
+                    type: object
+        '403':
+          description: invalid token
+        '404':
+          description: run id not found

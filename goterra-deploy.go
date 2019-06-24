@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1703,6 +1704,55 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// GetRunsHandler get all runs (limit 50, allow paging)
+var GetRunsHandler = func(w http.ResponseWriter, r *http.Request) {
+	// vars := mux.Vars(r)
+	// nsID := vars["id"]
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"uid": claims.UID,
+	}
+
+	runs := make([]Run, 0)
+	var opts mongoOptions.FindOptions
+	opts.SetSkip(0)
+	opts.SetLimit(50)
+	skip, ok := r.URL.Query()["skip"]
+	if ok {
+		sval, sconvErr := strconv.ParseInt(skip[0], 0, 64)
+		if sconvErr == nil {
+			opts.SetSkip(sval)
+		}
+	}
+	limit, ok := r.URL.Query()["limit"]
+	if ok {
+		sval, sconvErr := strconv.ParseInt(limit[0], 0, 64)
+		if sconvErr == nil {
+			opts.SetLimit(sval)
+		}
+	}
+	runsCursor, err := runCollection.Find(ctx, ns, &opts)
+	for runsCursor.Next(ctx) {
+		var run Run
+		runsCursor.Decode(&run)
+		runs = append(runs, run)
+	}
+	resp := map[string]interface{}{"runs": runs}
+	json.NewEncoder(w).Encode(resp)
+	return
+}
+
 // GetRunHandler get some info about run
 var GetRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -1898,17 +1948,19 @@ func main() {
 	// r.HandleFunc("/deploy/recipe", GetPublicRecipesHandler).Methods("GET")  //get public recipes
 	// r.HandleFunc("/deploy/app", GetPublicAppsHandler).Methods("GET")  //get public apps
 
-	r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST")                           // deploy app
-	r.HandleFunc("/deploy/ns/{id}/run/{run}", GetRunHandler).Methods("GET")                                       // get run info
+	r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST") // deploy app
+	r.HandleFunc("/deploy/ns/{id}/run/{run}", GetRunHandler).Methods("GET")
 	r.HandleFunc("/deploy/ns/{id}/run/{application}/terraform", CreateRunTerraformHandlerHandler).Methods("POST") //get terraform templates for a run but do not deploy app
 	r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")                                 // stop run
-	//r.HandleFunc("/deploy/ns/{id}/run", GetNSRunsHandler).Methods("GET")  // Get all runs for this NS                                      // get run info
+	//r.HandleFunc("/deploy/ns/{id}/run", GetNSRunsHandler).Methods("GET")                                          // Get all user runs for this NS
 
 	r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")                              // get ns endpoints
 	r.HandleFunc("/deploy/ns/{id}/endpoint", CreateNSEndpointHandler).Methods("POST")                           // add endpoint
 	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", GetNSEndpointHandler).Methods("GET")                    // get endpoint
 	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", CreateNSEndpointSecretHandler).Methods("PUT")    // create/update user secret for this endpoint
 	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", DeleteNSEndpointSecretHandler).Methods("DELETE") // delete user secret for this endpoint
+
+	r.HandleFunc("/deploy/run", GetRunsHandler).Methods("GET") // Get all user runs
 
 	// r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", DeleteNSEndpointHandler).Methods("DELETE")  // delete endpoint
 
