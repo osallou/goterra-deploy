@@ -120,6 +120,7 @@ type Run struct {
 	End             int64   `json:"end"`
 	Duration        float64 `json:"duration"`
 	Outputs         string  `json:"outputs"`
+	Error           string  `json:"error"`
 	Deployment      string  `json:"deployment"`
 	Events          []Event `json:"events"`
 }
