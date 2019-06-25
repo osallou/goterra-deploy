@@ -1225,7 +1225,7 @@ var CreateNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request)
 		// create
 		secret := &EndPointSecret{
 			UID:       claims.UID,
-			UserName:  data.UserName
+			UserName:  data.UserName,
 			EndPoint:  endpointID,
 			Password:  cryptedPwd,
 			Namespace: nsID,
