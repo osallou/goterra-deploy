@@ -117,6 +117,7 @@ type Run struct {
 	Namespace       string             `json:"namespace"`
 	UID             string
 	Start           int64   `json:"start"`
+	End             int64   `json:"end"`
 	Duration        float64 `json:"duration"`
 	Outputs         string  `json:"outputs"`
 	Deployment      string  `json:"deployment"`
@@ -1640,6 +1641,7 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	run.UID = claims.UID
 	run.Namespace = nsID
 	run.Start = time.Now().Unix()
+	run.End = 0
 	run.Status = "pending"
 	// Clear sensitive inputs
 	run.SensitiveInputs = make(map[string]string)
