@@ -1206,7 +1206,6 @@ var CreateNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request)
 	defer cancel()
 	ns := bson.M{
 		"uid":       claims.UID,
-		"name":      data.UserName,
 		"endpoint":  endpointID,
 		"namespace": nsID,
 	}
@@ -1226,6 +1225,7 @@ var CreateNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request)
 		// create
 		secret := &EndPointSecret{
 			UID:       claims.UID,
+			UserName:  data.UserName
 			EndPoint:  endpointID,
 			Password:  cryptedPwd,
 			Namespace: nsID,
