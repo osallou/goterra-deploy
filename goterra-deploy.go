@@ -106,6 +106,8 @@ type Event struct {
 
 // Run represents a deployment info for an app
 type Run struct {
+	Name            string             `json:"name"`
+	Description     string             `json:"description"`
 	ID              primitive.ObjectID `json:"id" bson:"_id,omitempty"`
 	AppID           string             `json:"appID"` // Application id
 	Inputs          map[string]string  `json:"inputs"`
@@ -1726,6 +1728,11 @@ var GetRunsHandler = func(w http.ResponseWriter, r *http.Request) {
 
 	runs := make([]Run, 0)
 	var opts mongoOptions.FindOptions
+	// Get most recents first
+	sortMap := make(map[string]interface{})
+	sortMap["_id"] = -1
+	opts.SetSort(sortMap)
+	// opts.SetSort(bson.D{{"_id", -1}})
 	opts.SetSkip(0)
 	opts.SetLimit(50)
 	skip, ok := r.URL.Query()["skip"]
