@@ -1822,14 +1822,15 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	run := &Run{}
-	err = json.NewDecoder(r.Body).Decode(run)
+	run := Run{}
+	err = json.NewDecoder(r.Body).Decode(&run)
 	if err != nil {
-		w.Header().Add("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		respError := map[string]interface{}{"message": "failed to decode message"}
-		json.NewEncoder(w).Encode(respError)
-		return
+		log.Printf("Delete with no content, this is allowed....")
+		//w.Header().Add("Content-Type", "application/json")
+		//w.WriteHeader(http.StatusInternalServerError)
+		//respError := map[string]interface{}{"message": "failed to decode message"}
+		//json.NewEncoder(w).Encode(respError)
+		//return
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1885,6 +1886,23 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 			log.Printf("password provided in run, skipping secret checks")
 		}
 	}
+
+	ctxUpdate, updateCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	runFilter := bson.M{
+		"_id": run.ID,
+	}
+	runUpdate := bson.M{
+		"$set": bson.M{
+			"status": "destroy_pending",
+		},
+	}
+
+	updatedRun := Run{}
+	upErr := runCollection.FindOneAndUpdate(ctxUpdate, runFilter, runUpdate).Decode(&updatedRun)
+	if upErr != nil {
+		log.Printf("Failed to update run status: %s", upErr)
+	}
+	updateCancel()
 
 	amqpErr := terraDeployUtils.SendRunAction("destroy", vars["run"], sensitiveInputs)
 	if amqpErr != nil {
