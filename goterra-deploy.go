@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -29,6 +28,9 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	mongo "go.mongodb.org/mongo-driver/mongo"
 	mongoOptions "go.mongodb.org/mongo-driver/mongo/options"
+
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 
 	terraToken "github.com/osallou/goterra-lib/lib/token"
 
@@ -179,7 +181,7 @@ func CheckAPIKey(apiKey string) (data terraUser.AuthData, err error) {
 			data.User.Logged = true
 		}
 	}
-	log.Printf("[DEBUG] User logged: %s", data.User.UID)
+	log.Debug().Str("uid", data.User.UID).Msg("User logged")
 	return data, err
 }
 
@@ -196,96 +198,7 @@ func CheckToken(authToken string) (user terraUser.User, err error) {
 	}
 	json.Unmarshal(msg, &user)
 	return user, nil
-	/*
-		data, err := base64.StdEncoding.DecodeString(tokenStr)
-		if err != nil {
-			fmt.Printf("Token error: %v\n", err)
-			return claims, errors.New("Invalid token")
-		}
-		decodedToken := string(decrypt(data, config.Secret))
-
-		claims = &Claims{}
-		token, err := jwt.ParseWithClaims(decodedToken, claims, func(token *jwt.Token) (interface{}, error) {
-			return []byte(config.Secret), nil
-		})
-		if err != nil || !token.Valid || claims.Audience != "goterra/deploy" {
-			fmt.Printf("Token error: %v\n", err)
-			return claims, errors.New("Invalid token")
-		}
-		fmt.Printf("DEBUG %+v\n", claims)
-		return claims, nil
-	*/
 }
-
-// encrypt and decrypt
-/*
-func createHash(key string) string {
-	hasher := md5.New()
-	hasher.Write([]byte(key))
-	return hex.EncodeToString(hasher.Sum(nil))
-}
-
-func encrypt(data []byte, passphrase string) []byte {
-	block, _ := aes.NewCipher([]byte(createHash(passphrase)))
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		panic(err.Error())
-	}
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err = io.ReadFull(rand.Reader, nonce); err != nil {
-		panic(err.Error())
-	}
-	ciphertext := gcm.Seal(nonce, nonce, data, nil)
-	return ciphertext
-}
-
-func decrypt(data []byte, passphrase string) []byte {
-	key := []byte(createHash(passphrase))
-	block, err := aes.NewCipher(key)
-	if err != nil {
-		panic(err.Error())
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		panic(err.Error())
-	}
-	nonceSize := gcm.NonceSize()
-	nonce, ciphertext := data[:nonceSize], data[nonceSize:]
-	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
-	if err != nil {
-		panic(err.Error())
-	}
-	return plaintext
-}
-*/
-
-// end of encrypt
-
-// createToken creates a JWT token for input user
-/*
-func createToken(user terraUser.User) (tokenString string, err error) {
-	config := terraConfig.LoadConfig()
-	mySigningKey := []byte(config.Secret)
-
-	expirationTime := time.Now().Add(24 * time.Hour)
-	claims := &Claims{
-		UID:        user.UID,
-		APIKey:     user.APIKey,
-		Admin:      user.Admin,
-		Namespaces: make(map[string]bool),
-		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: expirationTime.Unix(),
-			Audience:  "goterra/deploy",
-		},
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err = token.SignedString(mySigningKey)
-
-	tokenBytes := []byte(tokenString)
-	tokenString = base64.StdEncoding.EncodeToString(encrypt(tokenBytes, config.Secret))
-	return tokenString, err
-}
-*/
 
 // BindHandler gets API Key and returns a Token
 var BindHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -427,7 +340,7 @@ var UpdateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 
 	err = nsCollection.FindOneAndReplace(ctx, ns, newns).Decode(&nsdb)
 	if err != nil {
-		log.Printf("[ERROR] failed to update namespace %v", err)
+		log.Error().Str("uid", claims.UID).Str("ns", nsID).Msgf("failed to update namespace %v", err)
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		respError := map[string]interface{}{"message": "failed to update namespace"}
@@ -1094,7 +1007,7 @@ func cryptData(data string) (string, error) {
 
 	block, cipherErr := aes.NewCipher([]byte(secret))
 	if cipherErr != nil {
-		log.Printf("Failed secret cypher: %s", cipherErr)
+		log.Error().Msgf("Failed secret cypher: %s", cipherErr)
 		return "", cipherErr
 	}
 	gcm, err := cipher.NewGCM(block)
@@ -1596,11 +1509,11 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		}
 		errSecret := endpointSecretCollection.FindOne(ctxSecret, secretFilter).Decode(secretEndpoint)
 		if errSecret == nil {
-			log.Printf("Using user secret for endpoint")
+			log.Debug().Str("uid", claims.UID).Str("ns", nsID).Msg("Using user secret for endpoint")
 			if !passwordOk || passwordVal == "" {
 				decodedPassword, decodedErr := decryptData(secretEndpoint.Password)
 				if decodedErr == nil {
-					log.Printf("[ERROR] Failed to decode user %s password for endpoint %s", claims.UID, run.Endpoint)
+					log.Error().Str("uid", claims.UID).Str("ns", nsID).Msgf("failed to decode user password for endpoint %s", run.Endpoint)
 					sensitiveInputs["password"] = decodedPassword
 				}
 			}
@@ -1610,32 +1523,9 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 
 			}
 		} else {
-			log.Printf("no endpoint secret defined")
+			log.Debug().Str("uid", claims.UID).Str("ns", nsID).Msg("no endpoint secret defined")
 		}
 	}
-
-	/*
-		if val, ok := sensitiveInputs["password"]; !ok || val == "" {
-			secretEndpoint := &EndPointSecret{}
-			ctxSecret, cancelSecret := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancelSecret()
-			secretFilter := bson.M{
-				"endpoint": run.Endpoint,
-				"uid":      claims.UID,
-			}
-			errSecret := endpointSecretCollection.FindOne(ctxSecret, secretFilter).Decode(secretEndpoint)
-			if errSecret == nil {
-				log.Printf("Using user secret for endpoint")
-				decodedPassword, decodedErr := decryptData(secretEndpoint.Password)
-				if decodedErr == nil {
-					log.Printf("[ERROR] Failed to decode user %s password for endpoint %s", claims.UID, run.Endpoint)
-					sensitiveInputs["password"] = decodedPassword
-				}
-			} else {
-				log.Printf("password provided in run, skipping secret checks")
-			}
-		}
-	*/
 
 	config := terraConfig.LoadConfig()
 	run.AppID = vars["application"]
@@ -1825,7 +1715,7 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	run := Run{}
 	err = json.NewDecoder(r.Body).Decode(&run)
 	if err != nil {
-		log.Printf("Delete with no content, this is allowed....")
+		log.Debug().Str("uid", claims.UID).Str("ns", nsID).Msg("Delete with no content, this is allowed....")
 		//w.Header().Add("Content-Type", "application/json")
 		//w.WriteHeader(http.StatusInternalServerError)
 		//respError := map[string]interface{}{"message": "failed to decode message"}
@@ -1871,25 +1761,25 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		ctxSecret, cancelSecret := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancelSecret()
 		secretFilter := bson.M{
-			"endpoint": run.Endpoint,
+			"endpoint": rundb.Endpoint,
 			"uid":      claims.UID,
 		}
 		errSecret := endpointSecretCollection.FindOne(ctxSecret, secretFilter).Decode(secretEndpoint)
 		if errSecret == nil {
-			log.Printf("Using user secret for endpoint")
+			log.Debug().Str("uid", claims.UID).Str("ns", nsID).Msg("Using user secret for endpoint")
 			decodedPassword, decodedErr := decryptData(secretEndpoint.Password)
 			if decodedErr == nil {
-				log.Printf("[ERROR] Failed to decode user %s password for endpoint %s", claims.UID, run.Endpoint)
+				log.Printf("[ERROR] Failed to decode user %s password for endpoint %s", claims.UID, rundb.Endpoint)
 				sensitiveInputs["password"] = decodedPassword
 			}
 		} else {
-			log.Printf("password provided in run, skipping secret checks")
+			log.Debug().Str("uid", claims.UID).Str("ns", nsID).Msg("password provided in run, skipping secret checks")
 		}
 	}
 
 	ctxUpdate, updateCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	runFilter := bson.M{
-		"_id": run.ID,
+		"_id": rundb.ID,
 	}
 	runUpdate := bson.M{
 		"$set": bson.M{
@@ -1900,7 +1790,7 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	updatedRun := Run{}
 	upErr := runCollection.FindOneAndUpdate(ctxUpdate, runFilter, runUpdate).Decode(&updatedRun)
 	if upErr != nil {
-		log.Printf("Failed to update run status: %s", upErr)
+		log.Error().Str("uid", claims.UID).Str("ns", nsID).Msgf("Failed to update run status: %s", upErr)
 	}
 	updateCancel()
 
@@ -1913,24 +1803,31 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	json.NewEncoder(w).Encode(rundb)
+	json.NewEncoder(w).Encode(updatedRun)
 }
 
 // End of Run ************************************
 
 func main() {
 
+	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	if os.Getenv("GOT_DEBUG") != "" {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	}
+
 	config := terraConfig.LoadConfig()
 
 	consulErr := terraConfig.ConsulDeclare("got-deploy", "/deploy")
 	if consulErr != nil {
-		fmt.Printf("Failed to register: %s", consulErr.Error())
+		log.Error().Msgf("Failed to register: %s", consulErr.Error())
 		panic(consulErr)
 	}
 
 	mongoClient, err := mongo.NewClient(mongoOptions.Client().ApplyURI(config.Mongo.URL))
 	if err != nil {
-		log.Printf("[ERROR] Failed to connect to mongo server %s\n", config.Mongo.URL)
+		log.Error().Msgf("Failed to connect to mongo server %s\n", config.Mongo.URL)
 		os.Exit(1)
 	}
 	ctx, cancelMongo := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1938,7 +1835,7 @@ func main() {
 
 	err = mongoClient.Connect(ctx)
 	if err != nil {
-		log.Printf("[ERROR] Failed to connect to mongo server %s\n", config.Mongo.URL)
+		log.Error().Msgf("Failed to connect to mongo server %s\n", config.Mongo.URL)
 		os.Exit(1)
 	}
 	nsCollection = mongoClient.Database(config.Mongo.DB).Collection("ns")
@@ -2010,6 +1907,6 @@ func main() {
 		ReadTimeout:  15 * time.Second,
 	}
 
-	log.Fatal(srv.ListenAndServe())
+	srv.ListenAndServe()
 
 }
