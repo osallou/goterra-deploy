@@ -967,6 +967,30 @@ paths:
         '404':
           description: endpoint id not found
   /deploy/ns/{id}/endpoint/{endpoint}/secret:
+    get:
+      security:
+        - JWTToken: []
+      summary: checks if user has a secret for endpoint [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: endpoint
+          required: true
+          schema:
+            type: string
+          description: id of the endpoint
+      responses:
+        '200':
+          description: secret found
+        '403':
+          description: invalid token
+        '404':
+          description: no secret found
     put:
       security:
         - JWTToken: []
