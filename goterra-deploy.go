@@ -57,16 +57,23 @@ var HomeHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// Claims contains JWT claims
-/*
-type Claims struct {
-	UID        string          `json:"uid"`
-	APIKey     string          `json:"apikey"`
-	Email      string          `json:"email"`
-	Admin      bool            `json:"admin"`
-	Namespaces map[string]bool `json:"namespaces"`
-	jwt.StandardClaims
-}*/
+// TODO Model and VM not yet used
+
+// VM defines a VM with optional storage, public ip, shared storage, ...
+type VM struct {
+	Name          string `json:"name"`
+	PublicIP      bool   `json:"public_ip"`
+	SharedStorage bool   `json:"shared_storage"`
+	Storage       int64  `json:"storage"` // Temporary storage, size in G
+	Count         int64  `json:"count"`   // 0, means user defined, else use value
+	// Inputs map[string]string // Expected variables
+}
+
+// Model defines a set of VM which can be used to generate some terraform templates for openstack, ...
+type Model struct {
+	VMS               []VM     `json:"vms"`
+	DeploymentOutputs []string `json:"outputs"` // Expected outputs from goterra store
+}
 
 // Recipe describe a recipe for an app
 type Recipe struct {
@@ -1078,7 +1085,7 @@ var GetNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	eps := EndPointSecret{}
-	errEps := endpointCollection.FindOne(ctx, ns).Decode(&eps)
+	errEps := endpointSecretCollection.FindOne(ctx, ns).Decode(&eps)
 	if errEps != nil {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -1114,7 +1121,7 @@ var DeleteNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request)
 		"namespace": nsID,
 	}
 
-	_, errDel := endpointCollection.DeleteOne(ctx, ns)
+	_, errDel := endpointSecretCollection.DeleteOne(ctx, ns)
 	if errDel != nil {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -1170,7 +1177,7 @@ var CreateNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request)
 	}
 
 	var endpointdb EndPointSecret
-	err = endpointCollection.FindOne(ctx, ns).Decode(&endpointdb)
+	err = endpointSecretCollection.FindOne(ctx, ns).Decode(&endpointdb)
 	if err == mongo.ErrNoDocuments {
 		// create
 		secret := &EndPointSecret{
@@ -1930,7 +1937,7 @@ func main() {
 	c := cors.New(cors.Options{
 		AllowedOrigins:   []string{"*"},
 		AllowCredentials: true,
-		AllowedHeaders:   []string{"Authorization"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
 	})
 	handler := c.Handler(r)
