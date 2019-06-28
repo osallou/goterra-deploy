@@ -71,8 +71,11 @@ type VM struct {
 
 // Model defines a set of VM which can be used to generate some terraform templates for openstack, ...
 type Model struct {
-	VMS               []VM     `json:"vms"`
-	DeploymentOutputs []string `json:"outputs"` // Expected outputs from goterra store
+	Name             string `json:"name"`
+	Count            int64  `json:"count"`
+	PublicIP         string `json:"public_ip"`
+	EphemeralStorage string `json:"ephemeral_disk"`
+	SharedStorage    string `json:"shared_storage"`
 }
 
 // Recipe describe a recipe for an app
@@ -100,6 +103,7 @@ type Application struct {
 	Recipes     []string           `json:"recipes"`
 	Namespace   string             `json:"namespace"`
 	Templates   map[string]string  `json:"templates"` // One template per endpoint type (openstack, ...)
+	Model       []Model            `json:"model"`     // Model describe expected VM, templates will be generated from model
 	Inputs      map[string]string  `json:"inputs"`    // expected inputs varname, label
 	Image       string             `json:"image"`
 	Timestamp   int64              `json:"ts"`
