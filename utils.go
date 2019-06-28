@@ -1,4 +1,4 @@
-package terradeployutils
+package main
 
 import (
 	"context"
@@ -124,4 +124,9 @@ func SendRunAction(action string, id string, secrets map[string]string) error {
 		return err
 	}
 	return nil
+}
+
+func ModelsToTemplates(models []Model) map[string]string {
+	fake := make(map[string]string)
+	return fake
 }

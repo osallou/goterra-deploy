@@ -33,8 +33,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	terraToken "github.com/osallou/goterra-lib/lib/token"
-
-	terraDeployUtils "github.com/osallou/goterra-deploy/lib"
+	// terraDeployUtils "github.com/osallou/goterra-deploy/lib"
 	// terraDb "github.com/osallou/goterra/lib/db"
 )
 
@@ -55,18 +54,6 @@ var HomeHandler = func(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{"version": Version, "message": "ok"}
 	w.Header().Add("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
-}
-
-// TODO Model and VM not yet used
-
-// VM defines a VM with optional storage, public ip, shared storage, ...
-type VM struct {
-	Name          string `json:"name"`
-	PublicIP      bool   `json:"public_ip"`
-	SharedStorage bool   `json:"shared_storage"`
-	Storage       int64  `json:"storage"` // Temporary storage, size in G
-	Count         int64  `json:"count"`   // 0, means user defined, else use value
-	// Inputs map[string]string // Expected variables
 }
 
 // Model defines a set of VM which can be used to generate some terraform templates for openstack, ...
@@ -237,7 +224,7 @@ var CreateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := &terraDeployUtils.NSData{}
+	data := &NSData{}
 	err = json.NewDecoder(r.Body).Decode(data)
 	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
@@ -252,7 +239,7 @@ var CreateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 	ns := bson.M{
 		"name": data.Name,
 	}
-	var nsdb terraDeployUtils.NSData
+	var nsdb NSData
 	err = nsCollection.FindOne(ctx, ns).Decode(&nsdb)
 	if err != mongo.ErrNoDocuments {
 		// already exists
@@ -300,7 +287,7 @@ var UpdateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nsID := vars["id"]
 
-	data := &terraDeployUtils.NSData{}
+	data := &NSData{}
 	err = json.NewDecoder(r.Body).Decode(data)
 	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
@@ -317,7 +304,7 @@ var UpdateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		"_id": objID,
 	}
 
-	var nsdb terraDeployUtils.NSData
+	var nsdb NSData
 	err = nsCollection.FindOne(ctx, ns).Decode(&nsdb)
 	if err == mongo.ErrNoDocuments {
 		w.Header().Add("Content-Type", "application/json")
@@ -385,7 +372,7 @@ var GetNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		"_id": objID,
 	}
 
-	var nsdb terraDeployUtils.NSData
+	var nsdb NSData
 	err = nsCollection.FindOne(ctx, ns).Decode(&nsdb)
 	if err == mongo.ErrNoDocuments {
 		w.Header().Add("Content-Type", "application/json")
@@ -461,10 +448,10 @@ var GetNSALLHandler = func(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	namespaces := make([]terraDeployUtils.NSData, 0)
+	namespaces := make([]NSData, 0)
 	nscursor, _ := nsCollection.Find(ctx, ns)
 	for nscursor.Next(ctx) {
-		var nsdb terraDeployUtils.NSData
+		var nsdb NSData
 		nscursor.Decode(&nsdb)
 		namespaces = append(namespaces, nsdb)
 	}
@@ -486,7 +473,7 @@ var CreateNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
-	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+	if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		respError := map[string]interface{}{"message": "not a namespace member"}
@@ -556,7 +543,7 @@ var GetNSRecipesHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
-	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+	if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		respError := map[string]interface{}{"message": "not a namespace member"}
@@ -615,7 +602,7 @@ var GetNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(respError)
 			return
 		}
-		if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
 			w.Header().Add("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			respError := map[string]interface{}{"message": "not a namespace member"}
@@ -641,7 +628,7 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
-	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+	if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		respError := map[string]interface{}{"message": "not a namespace member"}
@@ -802,7 +789,7 @@ var GetNSAppsHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
-	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+	if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		respError := map[string]interface{}{"message": "not a namespace member"}
@@ -861,7 +848,7 @@ var GetNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(respError)
 			return
 		}
-		if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
 			w.Header().Add("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			respError := map[string]interface{}{"message": "not a namespace member"}
@@ -948,7 +935,7 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(respError)
 			return
 		}
-		if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
 			w.Header().Add("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			respError := map[string]interface{}{"message": "not a namespace member"}
@@ -999,6 +986,7 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 
 // Endpoints *************************************
 
+// EndPointSecret is a structure to save in db a user/password (encrypted)
 type EndPointSecret struct {
 	UID       string `json:"uid"`
 	UserName  string `json:"name"`
@@ -1220,7 +1208,7 @@ var CreateNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
-	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+	if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		respError := map[string]interface{}{"message": "not a namespace member"}
@@ -1288,7 +1276,7 @@ var GetNSEndpointsHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
-	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+	if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		respError := map[string]interface{}{"message": "not a namespace member"}
@@ -1328,7 +1316,7 @@ var GetNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
-	if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
+	if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		respError := map[string]interface{}{"message": "not a namespace member"}
@@ -1376,7 +1364,7 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 	if err == mongo.ErrNoDocuments {
 		return "", "", fmt.Errorf("application not found")
 	}
-	if !appDb.Public && !terraDeployUtils.IsMemberOfNS(nsCollection, appDb.Namespace, userID) {
+	if !appDb.Public && !IsMemberOfNS(nsCollection, appDb.Namespace, userID) {
 		return "", "", fmt.Errorf("not allowed to access namespace %s by %s", appDb.Namespace, userID)
 	}
 
@@ -1421,7 +1409,7 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 	}
 
 	// Endpoint
-	if terraDeployUtils.IsMemberOfNS(nsCollection, nsID, userID) {
+	if IsMemberOfNS(nsCollection, nsID, userID) {
 		for key := range endpointDb.Config {
 			variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", key, endpointDb.Config[key])
 		}
@@ -1462,15 +1450,6 @@ var CreateRunTerraformHandlerHandler = func(w http.ResponseWriter, r *http.Reque
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
-	/*
-		if !claims.Admin && !terraDeployUtils.IsMemberOfNS(nsCollection, nsID, claims.UID) {
-			w.Header().Add("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			respError := map[string]interface{}{"message": "not a namespace member"}
-			json.NewEncoder(w).Encode(respError)
-			return
-		}
-	*/
 
 	run := &Run{}
 	err = json.NewDecoder(r.Body).Decode(run)
@@ -1630,7 +1609,7 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	amqpErr := terraDeployUtils.SendRunAction("deploy", newrun.InsertedID.(primitive.ObjectID).Hex(), sensitiveInputs)
+	amqpErr := SendRunAction("deploy", newrun.InsertedID.(primitive.ObjectID).Hex(), sensitiveInputs)
 	if amqpErr != nil {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -1842,7 +1821,7 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 	updateCancel()
 
-	amqpErr := terraDeployUtils.SendRunAction("destroy", vars["run"], sensitiveInputs)
+	amqpErr := SendRunAction("destroy", vars["run"], sensitiveInputs)
 	if amqpErr != nil {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
