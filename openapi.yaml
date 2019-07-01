@@ -57,6 +57,40 @@ components:
             type: string
         previous:
           type: string
+        inputs:
+          description: "expected inputs used for deployment"
+          type: object
+          additionalProperties:
+            type: string
+    Template:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        public:
+          type: boolean
+        namespace:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        previous:
+          type: string
+        data:
+          description: "template per cloud type"
+          type: object
+          additionalProperties:
+            type: string
+        inputs:
+          description: "expected inputs used for deployment"
+          type: object
+          additionalProperties:
+            type: string
     Application:
       type: object
       properties:
@@ -74,16 +108,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Recipe'
-        inputs:
-          description: "expected inputs used for deployment"
-          type: object
-          additionalProperties:
-            type: string
-        templates:
-          description: "terraform templates per endpoint type"
-          type: object
-          additionalProperties:
-            type: string
+        template:
+          description: "terraform template id"
+          type: string
     Endpoint:
       type: object
       properties:
@@ -509,6 +536,160 @@ paths:
                     description: id of the recipe
         '403':
           description: invalid token
+   
+  /deploy/ns/{id}/template:
+    get:
+      security:
+        - JWTToken: []
+      summary: get namespace templates [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+      responses:
+        '200':
+          description: list of templates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  templates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Template'
+        '403':
+          description: invalid token
+    post:
+      security:
+        - JWTToken: []
+      summary: create a template [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Template'
+      responses:
+        '201':
+          description: template created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  template:
+                    type: string
+                    description: id of the template
+        '403':
+          description: invalid token
+  /deploy/ns/{id}/template/{template}:
+    get:
+      security:
+        - JWTToken: []
+      summary: get a recipe [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: template
+          required: true
+          schema:
+            type: string
+          description: id of the template
+      responses:
+        '200':
+          description: recipe created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipe:
+                    $ref: '#/components/schemas/Template'
+        '403':
+          description: invalid token
+        '404':
+          description: template not found
+    put:
+      security:
+        - JWTToken: []
+      summary: update a template [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: template
+          required: true
+          schema:
+            type: string
+          description: id of the recipe
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Template'
+      responses:
+        '200':
+          description: template updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipe:
+                    type: string
+                    description: id of the recipe
+        '403':
+          description: invalid token
+    delete:
+      security:
+        - JWTToken: []
+      summary: update a template [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: template
+          required: true
+          schema:
+            type: string
+          description: id of the template
+      responses:
+        '200':
+          description: template deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recipe:
+                    type: string
+                    description: id of the template
+        '403':
+          description: invalid token          
+
   /deploy/ns/{id}/app:
     get:
       security:
@@ -725,7 +906,25 @@ paths:
                       $ref: '#/components/schemas/Recipe'
         '403':
           description: invalid token
-          
+
+  /deploy/template:
+    get:
+      summary: get public templates
+      responses:
+        '200':
+          description: list of templates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  templates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Template'
+        '403':
+          description: invalid token
+        
   /deploy/ns/{id}/run/{application}:
     post:
       security:
