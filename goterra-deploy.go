@@ -577,6 +577,11 @@ var GetNSTemplatesHandler = func(w http.ResponseWriter, r *http.Request) {
 
 	templates := make([]terraModel.Template, 0)
 	cursor, err := templateCollection.Find(ctx, ns)
+	if err != nil {
+		resp := map[string]interface{}{"templates": templates}
+		w.Header().Add("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}
 	for cursor.Next(ctx) {
 		var templatedb terraModel.Template
 		cursor.Decode(&templatedb)
