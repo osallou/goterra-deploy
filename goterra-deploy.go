@@ -766,11 +766,20 @@ var GetPublicRecipesHandler = func(w http.ResponseWriter, r *http.Request) {
 		"public": true,
 	}
 
+	lightMode := false
+	light, ok := r.URL.Query()["light"]
+	if ok && light[0] == "1" {
+		lightMode = true
+	}
+
 	recipes := make([]terraModel.Recipe, 0)
 	cursor, err := recipeCollection.Find(ctx, ns)
 	for cursor.Next(ctx) {
 		var recipedb terraModel.Recipe
 		cursor.Decode(&recipedb)
+		if lightMode {
+			recipedb.Script = ""
+		}
 		recipes = append(recipes, recipedb)
 	}
 
@@ -796,6 +805,12 @@ var GetPublicTemplatesHandler = func(w http.ResponseWriter, r *http.Request) {
 		"public": true,
 	}
 
+	lightMode := false
+	light, ok := r.URL.Query()["light"]
+	if ok && light[0] == "1" {
+		lightMode = true
+	}
+
 	templates := make([]terraModel.Template, 0)
 	cursor, err := templateCollection.Find(ctx, ns)
 	if err != nil {
@@ -807,6 +822,10 @@ var GetPublicTemplatesHandler = func(w http.ResponseWriter, r *http.Request) {
 	for cursor.Next(ctx) {
 		var templatedb terraModel.Template
 		cursor.Decode(&templatedb)
+		if lightMode {
+			templatedb.Data = make(map[string]string)
+			templatedb.Model = make([]terraModel.Model, 0)
+		}
 		templates = append(templates, templatedb)
 	}
 
