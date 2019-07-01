@@ -1097,9 +1097,30 @@ var GetNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 
 // AppExpectedInputs gets all inputs from app, recipes and defined endpoints
 type AppExpectedInputs struct {
-	Application map[string]string            `json:"application"`
-	Recipes     map[string]string            `json:"recipes"`
-	EndPoints   map[string]map[string]string `json:"endpoints"`
+	Template  map[string]string            `json:"template"`
+	Recipes   map[string]string            `json:"recipes"`
+	EndPoints map[string]map[string]string `json:"endpoints"`
+}
+
+// getTemplateInputs get template inputs
+func getTemplateInputs(template string, ns string) (map[string]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	templateID, _ := primitive.ObjectIDFromHex(template)
+	recfilter := bson.M{
+		"_id": templateID,
+	}
+	var recdb terraModel.Template
+	recerr := templateCollection.FindOne(ctx, recfilter).Decode(&recdb)
+	if recerr == mongo.ErrNoDocuments {
+		return nil, fmt.Errorf("no template found %s", template)
+	}
+	if !recdb.Public && recdb.Namespace != ns {
+		return nil, fmt.Errorf("template is not public or in namespace %s", template)
+	}
+	return recdb.Inputs, nil
+
 }
 
 // getRecipeInputs get (sub)recipe inputs
@@ -1178,7 +1199,15 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	appInputs := &AppExpectedInputs{}
-	appInputs.Application = appdb.Inputs
+	var tplInputs error
+	appInputs.Template, tplInputs = getTemplateInputs(appdb.Template, nsID)
+	if tplInputs != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "failed to get template inputs"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
 	// Get recipes
 	appInputs.Recipes = make(map[string]string)
 	for _, recipe := range appdb.Recipes {
