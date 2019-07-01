@@ -878,6 +878,15 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
+
+	if data.Template == "" {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "missing template"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
 	t := time.Now()
 	data.Timestamp = t.Unix()
 	data.Namespace = nsID
