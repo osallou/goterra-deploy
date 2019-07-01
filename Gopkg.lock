@@ -115,15 +115,16 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:eb9c90d3a0c9b57c058563edc20b9d11ee742aedb2dc94065901033161235f7a"
+  digest = "1:475d5f6baf5805b919c84e13492eb3a7122b1f47ffb16283f7b0ce3afdfff744"
   name = "github.com/osallou/goterra-lib"
   packages = [
     "lib/config",
+    "lib/model",
     "lib/token",
     "lib/user",
   ]
   pruneopts = "UT"
-  revision = "21b1c8b699fafab0f1670a2d8b56861ba4d54950"
+  revision = "0981d8a560fcc17e53078b7040f2fa5a3c934dc6"
 
 [[projects]]
   digest = "1:b0c25f00bad20d783d259af2af8666969e2fc343fa0dc9efe52936bbd67fb758"
@@ -255,6 +256,7 @@
     "github.com/gorilla/handlers",
     "github.com/gorilla/mux",
     "github.com/osallou/goterra-lib/lib/config",
+    "github.com/osallou/goterra-lib/lib/model",
     "github.com/osallou/goterra-lib/lib/token",
     "github.com/osallou/goterra-lib/lib/user",
     "github.com/rs/cors",

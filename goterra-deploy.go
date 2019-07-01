@@ -35,6 +35,7 @@ import (
 	terraToken "github.com/osallou/goterra-lib/lib/token"
 	// terraDeployUtils "github.com/osallou/goterra-deploy/lib"
 	// terraDb "github.com/osallou/goterra/lib/db"
+	terraModel "github.com/osallou/goterra-lib/lib/model"
 )
 
 // Version of server
@@ -48,6 +49,7 @@ var appCollection *mongo.Collection
 var endpointCollection *mongo.Collection
 var endpointSecretCollection *mongo.Collection
 var runCollection *mongo.Collection
+var templateCollection *mongo.Collection
 
 // HomeHandler manages base entrypoint
 var HomeHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -56,6 +58,7 @@ var HomeHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+/*
 // Model defines a set of VM which can be used to generate some terraform templates for openstack, ...
 type Model struct {
 	Name             string `json:"name"`
@@ -79,6 +82,28 @@ type Recipe struct {
 	Previous     string             `json:"prev"`   // Previous recipe id, for versioning
 	Inputs       map[string]string  `json:"inputs"` // List of input variables needed when executing at app for this recipe, those variables should be sent as env_XX if XX is in requires: varname,label
 	Tags         []string           `json:"tags"`
+
+	// 	Remote      string             `json:"remote"` // path in git repo
+	// 	RemoteVersion      string             `json:"rversion"`
+	// 	Version      unit64             `json:"version"` //
+
+}
+
+// Template represents a terraform template
+type Template struct {
+	ID            primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	Namespace     string             `json:"namespace"`
+	Timestamp     int64              `json:"ts"`
+	Public        bool               `json:"public"`
+	Name          string             `json:"name"`
+	Description   string             `json:"description"`
+	Data          map[string]string  `json:"data"`     // map of cloud kind / terraform template
+	Inputs        map[string]string  `json:"inputs"`   // expected inputs varname, label
+	Remote        string             `json:"remote"`   // name of template in repo (dir)
+	RemoteVersion uint64             `json:"rversion"` // version of template in repo (subdir)
+	Version       uint64             `json:"version"`
+	Previous      string             `json:"prev"` // Previous recipe id, for versioning
+	Tags          []string           `json:"tags"`
 }
 
 // Application descripe an app to deploy
@@ -124,6 +149,7 @@ type Run struct {
 	Deployment      string  `json:"deployment"`
 	Events          []Event `json:"events"`
 }
+*/
 
 const (
 	openstack = "openstack"
@@ -131,6 +157,7 @@ const (
 	// azure     = "azure"
 )
 
+/*
 // Openstack maps to openstack provider in openstack
 type Openstack struct {
 	UserName          string `json:"user_name"`
@@ -163,6 +190,7 @@ type EndPoint struct {
 	Config   map[string]string `json:"config"` // Preset some inputs like endpoints url, ... to be set in terraform variables
 	Images   map[string]string `json:"images"` // map recipe image id to endpoint image id
 }
+*/
 
 // CheckAPIKey check X-API-Key authorization content and returns user info
 func CheckAPIKey(apiKey string) (data terraUser.AuthData, err error) {
@@ -435,16 +463,6 @@ var GetNSALLHandler = func(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	/*
-		if !claims.Admin {
-			w.Header().Add("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			respError := map[string]interface{}{"message": "not admin"}
-			json.NewEncoder(w).Encode(respError)
-			return
-		}
-	*/
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -457,6 +475,161 @@ var GetNSALLHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]interface{}{"ns": namespaces}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// CreateNSTemplateHandler creates a new template for namespace
+var CreateNSTemplateHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not a namespace member"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	data := &terraModel.Template{}
+	err = json.NewDecoder(r.Body).Decode(data)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to decode message"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	t := time.Now()
+	data.Timestamp = t.Unix()
+	data.Namespace = nsID
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"name":      data.Name,
+		"namespace": data.Namespace,
+	}
+	var templatedb terraModel.Template
+	err = recipeCollection.FindOne(ctx, ns).Decode(&templatedb)
+	if err != mongo.ErrNoDocuments {
+		// already exists
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "template already exists"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	newtemplate, err := templateCollection.InsertOne(ctx, data)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to create template"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	config := terraConfig.LoadConfig()
+	remote := []string{config.URL, "deploy", "ns", nsID, "template", newtemplate.InsertedID.(primitive.ObjectID).Hex()}
+	w.Header().Add("Content-Type", "application/json")
+	w.Header().Add("Location", strings.Join(remote, "/"))
+	w.WriteHeader(http.StatusCreated)
+
+	resp := map[string]interface{}{"recipe": newtemplate.InsertedID}
+
+	json.NewEncoder(w).Encode(resp)
+}
+
+// GetNSTemplatesHandler get namespace templates
+var GetNSTemplatesHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not a namespace member"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"namespace": nsID,
+	}
+
+	templates := make([]terraModel.Template, 0)
+	cursor, err := templateCollection.Find(ctx, ns)
+	for cursor.Next(ctx) {
+		var templatedb terraModel.Template
+		cursor.Decode(&templatedb)
+		templates = append(templates, templatedb)
+	}
+
+	resp := map[string]interface{}{"templates": templates}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// GetNSTemplateHandler get namespace template
+var GetNSTemplateHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	templateID, _ := primitive.ObjectIDFromHex(vars["template"])
+	claims, claimserr := CheckToken(r.Header.Get("Authorization"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"namespace": nsID,
+		"_id":       templateID,
+	}
+
+	var templatedb terraModel.Template
+	err := templateCollection.FindOne(ctx, ns).Decode(&templatedb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "template not found"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	if !templatedb.Public {
+		if claimserr != nil {
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", claimserr)}
+			json.NewEncoder(w).Encode(respError)
+			return
+		}
+		if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": "not a namespace member"}
+			json.NewEncoder(w).Encode(respError)
+			return
+		}
+	}
+
+	resp := map[string]interface{}{"template": templatedb}
 	w.Header().Add("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
@@ -481,7 +654,7 @@ var CreateNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := &Recipe{}
+	data := &terraModel.Recipe{}
 	err = json.NewDecoder(r.Body).Decode(data)
 	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
@@ -500,7 +673,7 @@ var CreateNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
 		"name":      data.Name,
 		"namespace": data.Namespace,
 	}
-	var recipedb Recipe
+	var recipedb terraModel.Recipe
 	err = recipeCollection.FindOne(ctx, ns).Decode(&recipedb)
 	if err != mongo.ErrNoDocuments {
 		// already exists
@@ -557,15 +730,75 @@ var GetNSRecipesHandler = func(w http.ResponseWriter, r *http.Request) {
 		"namespace": nsID,
 	}
 
-	recipes := make([]Recipe, 0)
+	recipes := make([]terraModel.Recipe, 0)
 	cursor, err := recipeCollection.Find(ctx, ns)
 	for cursor.Next(ctx) {
-		var recipedb Recipe
+		var recipedb terraModel.Recipe
 		cursor.Decode(&recipedb)
 		recipes = append(recipes, recipedb)
 	}
 
 	resp := map[string]interface{}{"recipes": recipes}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// GetPublicRecipesHandler get namespace recipes
+var GetPublicRecipesHandler = func(w http.ResponseWriter, r *http.Request) {
+	_, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"public": true,
+	}
+
+	recipes := make([]terraModel.Recipe, 0)
+	cursor, err := recipeCollection.Find(ctx, ns)
+	for cursor.Next(ctx) {
+		var recipedb terraModel.Recipe
+		cursor.Decode(&recipedb)
+		recipes = append(recipes, recipedb)
+	}
+
+	resp := map[string]interface{}{"recipes": recipes}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+//GetPublicTemplatesHandler returns public templates
+var GetPublicTemplatesHandler = func(w http.ResponseWriter, r *http.Request) {
+	_, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"public": true,
+	}
+
+	templates := make([]terraModel.Template, 0)
+	cursor, err := templateCollection.Find(ctx, ns)
+	for cursor.Next(ctx) {
+		var templatedb terraModel.Template
+		cursor.Decode(&templatedb)
+		templates = append(templates, templatedb)
+	}
+
+	resp := map[string]interface{}{"templates": templates}
 	w.Header().Add("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
@@ -584,7 +817,7 @@ var GetNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
 		"_id":       recipeID,
 	}
 
-	var recipedb Recipe
+	var recipedb terraModel.Recipe
 	err := recipeCollection.FindOne(ctx, ns).Decode(&recipedb)
 	if err == mongo.ErrNoDocuments {
 		w.Header().Add("Content-Type", "application/json")
@@ -636,7 +869,7 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := &Application{}
+	data := &terraModel.Application{}
 	err = json.NewDecoder(r.Body).Decode(data)
 	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
@@ -655,7 +888,7 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 		"name":      data.Name,
 		"namespace": data.Namespace,
 	}
-	var appdb Application
+	var appdb terraModel.Application
 	err = appCollection.FindOne(ctx, ns).Decode(&appdb)
 	if err != mongo.ErrNoDocuments {
 		// already exists
@@ -755,7 +988,7 @@ func checkRecipeImage(recipe string, ns string) ([]string, error) {
 	recfilter := bson.M{
 		"_id": recipeID,
 	}
-	var recdb Recipe
+	var recdb terraModel.Recipe
 	recerr := recipeCollection.FindOne(ctx, recfilter).Decode(&recdb)
 	if recerr == mongo.ErrNoDocuments {
 		return nil, fmt.Errorf("no recipe found %s", recipe)
@@ -803,10 +1036,10 @@ var GetNSAppsHandler = func(w http.ResponseWriter, r *http.Request) {
 		"namespace": nsID,
 	}
 
-	apps := make([]Application, 0)
+	apps := make([]terraModel.Application, 0)
 	cursor, err := appCollection.Find(ctx, ns)
 	for cursor.Next(ctx) {
-		var appdb Application
+		var appdb terraModel.Application
 		cursor.Decode(&appdb)
 		apps = append(apps, appdb)
 	}
@@ -830,7 +1063,7 @@ var GetNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 		"_id":       appID,
 	}
 
-	var appdb Application
+	var appdb terraModel.Application
 	err := appCollection.FindOne(ctx, ns).Decode(&appdb)
 	if err == mongo.ErrNoDocuments {
 		w.Header().Add("Content-Type", "application/json")
@@ -878,7 +1111,7 @@ func getRecipeInputs(recipe string, ns string) (map[string]string, error) {
 	recfilter := bson.M{
 		"_id": recipeID,
 	}
-	var recdb Recipe
+	var recdb terraModel.Recipe
 	recerr := recipeCollection.FindOne(ctx, recfilter).Decode(&recdb)
 	if recerr == mongo.ErrNoDocuments {
 		return nil, fmt.Errorf("no recipe found %s", recipe)
@@ -917,7 +1150,7 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 		"_id":       appID,
 	}
 
-	var appdb Application
+	var appdb terraModel.Application
 	err := appCollection.FindOne(ctx, ns).Decode(&appdb)
 	if err == mongo.ErrNoDocuments {
 		w.Header().Add("Content-Type", "application/json")
@@ -966,7 +1199,7 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 	// endpoints := make([]EndPoint, 0)
 	cursor, err := endpointCollection.Find(ctx, epns)
 	for cursor.Next(ctx) {
-		var endpointdb EndPoint
+		var endpointdb terraModel.EndPoint
 		cursor.Decode(&endpointdb)
 		appInputs.EndPoints[endpointdb.Name] = endpointdb.Inputs
 		/*
@@ -1216,7 +1449,7 @@ var CreateNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := &EndPoint{}
+	data := &terraModel.EndPoint{}
 	err = json.NewDecoder(r.Body).Decode(data)
 	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
@@ -1233,7 +1466,7 @@ var CreateNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 		"name":      data.Name,
 		"namespace": data.Namespace,
 	}
-	var endpointdb EndPoint
+	var endpointdb terraModel.EndPoint
 	err = endpointCollection.FindOne(ctx, ns).Decode(&endpointdb)
 	if err != mongo.ErrNoDocuments {
 		// already exists
@@ -1290,10 +1523,10 @@ var GetNSEndpointsHandler = func(w http.ResponseWriter, r *http.Request) {
 		"namespace": nsID,
 	}
 
-	endpoints := make([]EndPoint, 0)
+	endpoints := make([]terraModel.EndPoint, 0)
 	cursor, err := endpointCollection.Find(ctx, ns)
 	for cursor.Next(ctx) {
-		var endpointdb EndPoint
+		var endpointdb terraModel.EndPoint
 		cursor.Decode(&endpointdb)
 		endpoints = append(endpoints, endpointdb)
 	}
@@ -1331,7 +1564,7 @@ var GetNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 		"_id":       endpointID,
 	}
 
-	var endpointdb EndPoint
+	var endpointdb terraModel.EndPoint
 	err = endpointCollection.FindOne(ctx, ns).Decode(&endpointdb)
 	if err == mongo.ErrNoDocuments {
 		w.Header().Add("Content-Type", "application/json")
@@ -1350,7 +1583,7 @@ var GetNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 
 // Run *******************************************
 
-func getTerraTemplates(userID string, nsID string, app string, run *Run) (variablesTf string, appTf string, err error) {
+func getTerraTemplates(userID string, nsID string, app string, run *terraModel.Run) (variablesTf string, appTf string, err error) {
 	appID, _ := primitive.ObjectIDFromHex(app)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1359,7 +1592,7 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 		"_id": appID,
 	}
 
-	var appDb Application
+	var appDb terraModel.Application
 	err = appCollection.FindOne(ctx, ns).Decode(&appDb)
 	if err == mongo.ErrNoDocuments {
 		return "", "", fmt.Errorf("application not found")
@@ -1373,15 +1606,31 @@ func getTerraTemplates(userID string, nsID string, app string, run *Run) (variab
 		"namespace": nsID,
 		"_id":       endpointID,
 	}
-	var endpointDb EndPoint
+	var endpointDb terraModel.EndPoint
 	err = endpointCollection.FindOne(ctx, ns).Decode(&endpointDb)
 	if err == mongo.ErrNoDocuments {
 		return "", "", fmt.Errorf("endpoint not found")
 	}
 
-	appTf = appDb.Templates[endpointDb.Kind]
+	ctxTpl, cancelTpl := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelTpl()
+	nsTpl := bson.M{
+		"_id": appDb.Template,
+	}
+
+	var tplDb terraModel.Template
+	err = templateCollection.FindOne(ctxTpl, nsTpl).Decode(&tplDb)
+	if err == mongo.ErrNoDocuments {
+		return "", "", fmt.Errorf("template not found")
+	}
+
+	appTf = tplDb.Data[endpointDb.Kind]
 	if appTf == "" {
 		return "", "", fmt.Errorf("no " + endpointDb.Kind + " template found")
+	}
+
+	if !appDb.Public && !IsMemberOfNS(nsCollection, appDb.Namespace, userID) {
+		return "", "", fmt.Errorf("not allowed to access namespace %s by %s", appDb.Namespace, userID)
 	}
 
 	variablesTf = ""
@@ -1451,7 +1700,7 @@ var CreateRunTerraformHandlerHandler = func(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	run := &Run{}
+	run := &terraModel.Run{}
 	err = json.NewDecoder(r.Body).Decode(run)
 	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
@@ -1492,7 +1741,7 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	run := &Run{}
+	run := &terraModel.Run{}
 	err = json.NewDecoder(r.Body).Decode(run)
 	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
@@ -1563,7 +1812,7 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	run.Status = "pending"
 	// Clear sensitive inputs
 	run.SensitiveInputs = make(map[string]string)
-	run.Events = make([]Event, 0)
+	run.Events = make([]terraModel.Event, 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	newrun, err := runCollection.InsertOne(ctx, run)
@@ -1646,7 +1895,7 @@ var GetRunsHandler = func(w http.ResponseWriter, r *http.Request) {
 		"uid": claims.UID,
 	}
 
-	runs := make([]Run, 0)
+	runs := make([]terraModel.Run, 0)
 	var opts mongoOptions.FindOptions
 	// Get most recents first
 	sortMap := make(map[string]interface{})
@@ -1671,7 +1920,7 @@ var GetRunsHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 	runsCursor, err := runCollection.Find(ctx, ns, &opts)
 	for runsCursor.Next(ctx) {
-		var run Run
+		var run terraModel.Run
 		runsCursor.Decode(&run)
 		runs = append(runs, run)
 	}
@@ -1701,7 +1950,7 @@ var GetRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		"_id":       runID,
 		"namespace": nsID,
 	}
-	var rundb Run
+	var rundb terraModel.Run
 	err = runCollection.FindOne(ctx, ns).Decode(&rundb)
 	if err == mongo.ErrNoDocuments {
 		w.Header().Add("Content-Type", "application/json")
@@ -1739,7 +1988,7 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	run := Run{}
+	run := terraModel.Run{}
 	err = json.NewDecoder(r.Body).Decode(&run)
 	if err != nil {
 		log.Debug().Str("uid", claims.UID).Str("ns", nsID).Msg("Delete with no content, this is allowed....")
@@ -1756,7 +2005,7 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		"_id":       runID,
 		"namespace": nsID,
 	}
-	var rundb Run
+	var rundb terraModel.Run
 	err = runCollection.FindOne(ctx, ns).Decode(&rundb)
 	if err == mongo.ErrNoDocuments {
 		w.Header().Add("Content-Type", "application/json")
@@ -1814,7 +2063,7 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 
-	updatedRun := Run{}
+	updatedRun := terraModel.Run{}
 	upErr := runCollection.FindOneAndUpdate(ctxUpdate, runFilter, runUpdate).Decode(&updatedRun)
 	if upErr != nil {
 		log.Error().Str("uid", claims.UID).Str("ns", nsID).Msgf("Failed to update run status: %s", upErr)
@@ -1871,6 +2120,7 @@ func main() {
 	endpointCollection = mongoClient.Database(config.Mongo.DB).Collection("endpoint")
 	endpointSecretCollection = mongoClient.Database(config.Mongo.DB).Collection("endpointsecrets")
 	runCollection = mongoClient.Database(config.Mongo.DB).Collection("run")
+	templateCollection = mongoClient.Database(config.Mongo.DB).Collection("template")
 
 	// userCollection = mongoClient.Database(config.Mongo.DB).Collection("users")
 
@@ -1913,7 +2163,17 @@ func main() {
 	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", DeleteNSEndpointSecretHandler).Methods("DELETE") // delete user secret for this endpoint
 	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", GetNSEndpointSecretHandler).Methods("GET")       // checks if user has a secret for this endpoint
 
-	r.HandleFunc("/deploy/run", GetRunsHandler).Methods("GET") // Get all user runs
+	r.HandleFunc("/deploy/run", GetRunsHandler).Methods("GET")                  // Get all user runs
+	r.HandleFunc("/deploy/recipes", GetPublicRecipesHandler).Methods("GET")     // Get public recipes
+	r.HandleFunc("/deploy/templates", GetPublicTemplatesHandler).Methods("GET") // Get public templates
+
+	// TODO update openapi.yaml
+	// For the moment template api is not used,embeded in app definition
+	r.HandleFunc("/deploy/ns/{id}/template", CreateNSTemplateHandler).Methods("POST")        // create template
+	r.HandleFunc("/deploy/ns/{id}/template", GetNSTemplatesHandler).Methods("GET")           // get templates
+	r.HandleFunc("/deploy/ns/{id}/template/{template}", GetNSTemplateHandler).Methods("GET") // get template
+	// r.HandleFunc("/deploy/ns/{id}/template/{template}", UpdateNSTemplateHandler).Methods("PUT") // update template
+	// r.HandleFunc("/deploy/ns/{id}/template/{template}", DeleteNSTemplateHandler).Methods("DELETE")  // delete template
 
 	// r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", DeleteNSEndpointHandler).Methods("DELETE")  // delete endpoint
 

@@ -12,6 +12,7 @@ import (
 	mongo "go.mongodb.org/mongo-driver/mongo"
 
 	terraConfig "github.com/osallou/goterra-lib/lib/config"
+	terraModel "github.com/osallou/goterra-lib/lib/model"
 )
 
 // NSData represent a namespace
@@ -65,6 +66,7 @@ func IsMemberOfNS(coll *mongo.Collection, ns string, uid string) bool {
 	return false
 }
 
+/*
 // RunAction is message struct to be sent to the run component
 // action: apply or destroy
 // id: identifier of the run
@@ -73,6 +75,7 @@ type RunAction struct {
 	ID      string            `json:"id"`
 	Secrets map[string]string `json:"secrets"`
 }
+*/
 
 // SendRunAction sends a message to rabbitmq exchange
 func SendRunAction(action string, id string, secrets map[string]string) error {
@@ -108,7 +111,7 @@ func SendRunAction(action string, id string, secrets map[string]string) error {
 		return err
 	}
 
-	run := &RunAction{Action: action, ID: id, Secrets: secrets}
+	run := &terraModel.RunAction{Action: action, ID: id, Secrets: secrets}
 	body, _ := json.Marshal(run)
 	err = ch.Publish(
 		"gotrun", // exchange
@@ -126,7 +129,10 @@ func SendRunAction(action string, id string, secrets map[string]string) error {
 	return nil
 }
 
-func ModelsToTemplates(models []Model) map[string]string {
+// ModelsToTemplates analyse user defined model and creates some terraform templates
+// Only openstack for the moment
+func ModelsToTemplates(models []terraModel.Model) map[string]string {
+	// TODO
 	fake := make(map[string]string)
 	return fake
 }
