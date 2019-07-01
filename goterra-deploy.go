@@ -544,7 +544,7 @@ var CreateNSTemplateHandler = func(w http.ResponseWriter, r *http.Request) {
 	w.Header().Add("Location", strings.Join(remote, "/"))
 	w.WriteHeader(http.StatusCreated)
 
-	resp := map[string]interface{}{"recipe": newtemplate.InsertedID}
+	resp := map[string]interface{}{"template": newtemplate.InsertedID}
 
 	json.NewEncoder(w).Encode(resp)
 }
@@ -1663,9 +1663,10 @@ func getTerraTemplates(userID string, nsID string, app string, run *terraModel.R
 	}
 
 	ctxTpl, cancelTpl := context.WithTimeout(context.Background(), 30*time.Second)
+	tplID, _ := primitive.ObjectIDFromHex(appDb.Template)
 	defer cancelTpl()
 	nsTpl := bson.M{
-		"_id": appDb.Template,
+		"_id": tplID,
 	}
 
 	var tplDb terraModel.Template
