@@ -252,7 +252,7 @@ var CreateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	config := terraConfig.LoadConfig()
-	if config.ACL.AllowUserCreateNS {
+	if !config.ACL.AllowUserCreateNS {
 		if !claims.SuperUser && !claims.Admin {
 			w.Header().Add("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
