@@ -889,9 +889,15 @@ paths:
                       $ref: '#/components/schemas/Application'
         '403':
           description: invalid token
-  /deploy/recipe:
+  /deploy/recipes:
     get:
       summary: get public recipes
+      parameters:
+        - in: query
+          name: light
+          schema:
+            type: number
+          description: return templates without details
       responses:
         '200':
           description: list of recipes
@@ -907,9 +913,15 @@ paths:
         '403':
           description: invalid token
 
-  /deploy/template:
+  /deploy/templates:
     get:
       summary: get public templates
+      parameters:
+        - in: query
+          name: light
+          schema:
+            type: number
+          description: return templates without details
       responses:
         '200':
           description: list of templates
@@ -924,7 +936,23 @@ paths:
                       $ref: '#/components/schemas/Template'
         '403':
           description: invalid token
-        
+  /deploy/endpoints:
+    get:
+      summary: get public endopints
+      responses:
+        '200':
+          description: list of endpoints
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  endpoints:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Endpoint'
+        '403':
+          description: invalid token        
   /deploy/ns/{id}/run/{application}:
     post:
       security:
