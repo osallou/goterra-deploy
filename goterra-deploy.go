@@ -797,6 +797,42 @@ var GetPublicRecipesHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// GetPublicEndpointsHandler returns public endpoints
+var GetPublicEndpointsHandler = func(w http.ResponseWriter, r *http.Request) {
+	_, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"public": true,
+	}
+
+	endpoints := make([]terraModel.EndPoint, 0)
+	cursor, err := endpointCollection.Find(ctx, ns)
+	if err != nil {
+		resp := map[string]interface{}{"endpoints": endpoints}
+		w.Header().Add("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
+	for cursor.Next(ctx) {
+		var endpointdb terraModel.EndPoint
+		cursor.Decode(&endpointdb)
+		endpoints = append(endpoints, endpointdb)
+	}
+
+	resp := map[string]interface{}{"endpoints": endpoints}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
 //GetPublicTemplatesHandler returns public templates
 var GetPublicTemplatesHandler = func(w http.ResponseWriter, r *http.Request) {
 	_, err := CheckToken(r.Header.Get("Authorization"))
@@ -1627,13 +1663,6 @@ var GetNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
-	if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
-		w.Header().Add("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		respError := map[string]interface{}{"message": "not a namespace member"}
-		json.NewEncoder(w).Encode(respError)
-		return
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1650,6 +1679,16 @@ var GetNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 		respError := map[string]interface{}{"message": "endpoint not found"}
 		json.NewEncoder(w).Encode(respError)
 		return
+	}
+
+	if !endpointdb.Public {
+		if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": "not a namespace member"}
+			json.NewEncoder(w).Encode(respError)
+			return
+		}
 	}
 
 	resp := map[string]interface{}{"endpoint": endpointdb}
@@ -1688,6 +1727,9 @@ func getTerraTemplates(userID string, nsID string, app string, run *terraModel.R
 	err = endpointCollection.FindOne(ctx, ns).Decode(&endpointDb)
 	if err == mongo.ErrNoDocuments {
 		return "", "", fmt.Errorf("endpoint not found")
+	}
+	if !endpointDb.Public && !IsMemberOfNS(nsCollection, endpointDb.Namespace, userID) {
+		return "", "", fmt.Errorf("not allowed to access namespace %s by %s", endpointDb.Namespace, userID)
 	}
 
 	ctxTpl, cancelTpl := context.WithTimeout(context.Background(), 30*time.Second)
@@ -2311,6 +2353,7 @@ func main() {
 	r.HandleFunc("/deploy/run", GetRunsHandler).Methods("GET")                  // Get all user runs
 	r.HandleFunc("/deploy/recipes", GetPublicRecipesHandler).Methods("GET")     // Get public recipes
 	r.HandleFunc("/deploy/templates", GetPublicTemplatesHandler).Methods("GET") // Get public templates
+	r.HandleFunc("/deploy/endpoints", GetPublicEndpointsHandler).Methods("GET") // Get public endpoints
 
 	// TODO update openapi.yaml
 	// For the moment template api is not used,embeded in app definition
