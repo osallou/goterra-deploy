@@ -1720,7 +1720,7 @@ func getTerraTemplates(userID string, nsID string, app string, run *terraModel.R
 
 	endpointID, _ := primitive.ObjectIDFromHex(run.Endpoint)
 	ns = bson.M{
-		"namespace": nsID,
+		// "namespace": nsID,
 		"_id":       endpointID,
 	}
 	var endpointDb terraModel.EndPoint
