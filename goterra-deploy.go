@@ -606,15 +606,15 @@ var GetNSTemplatesHandler = func(w http.ResponseWriter, r *http.Request) {
 // GetNSTemplateHandler get namespace template
 var GetNSTemplateHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	nsID := vars["id"]
+	// nsID := vars["id"]
 	templateID, _ := primitive.ObjectIDFromHex(vars["template"])
 	claims, claimserr := CheckToken(r.Header.Get("Authorization"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	ns := bson.M{
-		"namespace": nsID,
-		"_id":       templateID,
+		// "namespace": nsID,
+		"_id": templateID,
 	}
 
 	var templatedb terraModel.Template
@@ -635,7 +635,7 @@ var GetNSTemplateHandler = func(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(respError)
 			return
 		}
-		if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		if !claims.Admin && !IsMemberOfNS(nsCollection, templatedb.Namespace, claims.UID) {
 			w.Header().Add("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			respError := map[string]interface{}{"message": "not a namespace member"}
@@ -882,15 +882,15 @@ var GetPublicTemplatesHandler = func(w http.ResponseWriter, r *http.Request) {
 // GetNSRecipeHandler get namespace recipe
 var GetNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	nsID := vars["id"]
+	// nsID := vars["id"]
 	recipeID, _ := primitive.ObjectIDFromHex(vars["recipe"])
 	claims, claimserr := CheckToken(r.Header.Get("Authorization"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	ns := bson.M{
-		"namespace": nsID,
-		"_id":       recipeID,
+		// "namespace": nsID,
+		"_id": recipeID,
 	}
 
 	var recipedb terraModel.Recipe
@@ -911,7 +911,7 @@ var GetNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(respError)
 			return
 		}
-		if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		if !claims.Admin && !IsMemberOfNS(nsCollection, recipedb.Namespace, claims.UID) {
 			w.Header().Add("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			respError := map[string]interface{}{"message": "not a namespace member"}
@@ -1166,7 +1166,7 @@ var GetNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(respError)
 			return
 		}
-		if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		if !claims.Admin && !IsMemberOfNS(nsCollection, appdb.Namespace, claims.UID) {
 			w.Header().Add("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			respError := map[string]interface{}{"message": "not a namespace member"}
@@ -1252,8 +1252,8 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	ns := bson.M{
-		"namespace": nsID,
-		"_id":       appID,
+		// "namespace": nsID,
+		"_id": appID,
 	}
 
 	var appdb terraModel.Application
@@ -1274,7 +1274,7 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(respError)
 			return
 		}
-		if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		if !claims.Admin && !IsMemberOfNS(nsCollection, appdb.Namespace, claims.UID) {
 			w.Header().Add("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			respError := map[string]interface{}{"message": "not a namespace member"}
@@ -1653,7 +1653,7 @@ var GetNSEndpointsHandler = func(w http.ResponseWriter, r *http.Request) {
 // GetNSEndpointHandler get namespace endpoint
 var GetNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	nsID := vars["id"]
+	// nsID := vars["id"]
 	endpointID, _ := primitive.ObjectIDFromHex(vars["endpoint"])
 	claims, err := CheckToken(r.Header.Get("Authorization"))
 	if err != nil {
@@ -1667,8 +1667,8 @@ var GetNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	ns := bson.M{
-		"namespace": nsID,
-		"_id":       endpointID,
+		// "namespace": nsID,
+		"_id": endpointID,
 	}
 
 	var endpointdb terraModel.EndPoint
@@ -1682,7 +1682,7 @@ var GetNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !endpointdb.Public {
-		if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		if !claims.Admin && !IsMemberOfNS(nsCollection, endpointdb.Namespace, claims.UID) {
 			w.Header().Add("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
 			respError := map[string]interface{}{"message": "not a namespace member"}
@@ -1779,7 +1779,7 @@ func getTerraTemplates(userID string, nsID string, app string, run *terraModel.R
 	}
 
 	// Endpoint
-	if IsMemberOfNS(nsCollection, nsID, userID) {
+	if endpointDb.Public || IsMemberOfNS(nsCollection, endpointDb.Namespace, userID) {
 		for key := range endpointDb.Config {
 			variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", key, endpointDb.Config[key])
 		}
