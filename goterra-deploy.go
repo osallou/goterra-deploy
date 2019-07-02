@@ -251,7 +251,8 @@ var CreateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
-	if os.Getenv("GOT_ACL_USER_CREATENS") != "1" {
+	config := terraConfig.LoadConfig()
+	if config.ACL.AllowUserCreateNS {
 		if !claims.SuperUser && !claims.Admin {
 			w.Header().Add("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
@@ -303,7 +304,6 @@ var CreateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]interface{}{"ns": newns.InsertedID}
 	w.Header().Add("Content-Type", "application/json")
-	config := terraConfig.LoadConfig()
 	remote := []string{config.URL, "deploy", "ns", newns.InsertedID.(primitive.ObjectID).Hex()}
 	w.Header().Add("Location", strings.Join(remote, "/"))
 	w.WriteHeader(http.StatusCreated)
