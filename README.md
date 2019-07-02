@@ -7,6 +7,9 @@ Based on terraform
 
 mongodb, goterra-auth
 
+## Environment variables
+
+* GOT_ACL_USER_CREATENS: allow users to create namespaces (else only admin or super users can create one)
 
 ## Run
 

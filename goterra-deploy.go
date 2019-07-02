@@ -251,6 +251,15 @@ var CreateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
+	if os.Getenv("GOT_ACL_USER_CREATENS") != "1" {
+		if !claims.SuperUser && !claims.Admin {
+			w.Header().Add("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			respError := map[string]interface{}{"message": "Only admin or super user can create namespace"}
+			json.NewEncoder(w).Encode(respError)
+			return
+		}
+	}
 
 	data := &NSData{}
 	err = json.NewDecoder(r.Body).Decode(data)
@@ -1945,6 +1954,72 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// GetNSRunsHandler get all runs (limit 50, allow paging)
+var GetNSRunsHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"uid":       claims.UID,
+		"namespace": nsID,
+	}
+
+	if claims.Admin && IsOwnerOfNS(nsCollection, nsID, claims.UID) {
+		getAll, ok := r.URL.Query()["all"]
+		if ok {
+			if getAll[0] == "1" {
+				ns = bson.M{
+					"namespace": nsID,
+				}
+			}
+		}
+	}
+
+	runs := make([]terraModel.Run, 0)
+	var opts mongoOptions.FindOptions
+	// Get most recents first
+	sortMap := make(map[string]interface{})
+	sortMap["_id"] = -1
+	opts.SetSort(sortMap)
+	// opts.SetSort(bson.D{{"_id", -1}})
+	opts.SetSkip(0)
+	opts.SetLimit(50)
+	skip, ok := r.URL.Query()["skip"]
+	if ok {
+		sval, sconvErr := strconv.ParseInt(skip[0], 0, 64)
+		if sconvErr == nil {
+			opts.SetSkip(sval)
+		}
+	}
+	limit, ok := r.URL.Query()["limit"]
+	if ok {
+		sval, sconvErr := strconv.ParseInt(limit[0], 0, 64)
+		if sconvErr == nil {
+			opts.SetLimit(sval)
+		}
+	}
+	runsCursor, err := runCollection.Find(ctx, ns, &opts)
+	for runsCursor.Next(ctx) {
+		var run terraModel.Run
+		runsCursor.Decode(&run)
+		runs = append(runs, run)
+	}
+	resp := map[string]interface{}{"runs": runs}
+	json.NewEncoder(w).Encode(resp)
+	return
+}
+
 // GetRunsHandler get all runs (limit 50, allow paging)
 var GetRunsHandler = func(w http.ResponseWriter, r *http.Request) {
 	// vars := mux.Vars(r)
@@ -2220,11 +2295,11 @@ func main() {
 	// r.HandleFunc("/deploy/recipe", GetPublicRecipesHandler).Methods("GET")  //get public recipes
 	// r.HandleFunc("/deploy/app", GetPublicAppsHandler).Methods("GET")  //get public apps
 
+	r.HandleFunc("/deploy/ns/{id}/run", GetNSRunsHandler).Methods("GET")                // Get all user runs for this NS
 	r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST") // deploy app
 	r.HandleFunc("/deploy/ns/{id}/run/{run}", GetRunHandler).Methods("GET")
 	r.HandleFunc("/deploy/ns/{id}/run/{application}/terraform", CreateRunTerraformHandlerHandler).Methods("POST") //get terraform templates for a run but do not deploy app
 	r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")                                 // stop run
-	//r.HandleFunc("/deploy/ns/{id}/run", GetNSRunsHandler).Methods("GET")                                          // Get all user runs for this NS
 
 	r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")                              // get ns endpoints
 	r.HandleFunc("/deploy/ns/{id}/endpoint", CreateNSEndpointHandler).Methods("POST")                           // add endpoint

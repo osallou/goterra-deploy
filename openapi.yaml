@@ -1272,3 +1272,44 @@ paths:
           description: invalid token
         '404':
           description: run id not found
+  /deploy/ns/{id}/run:
+    get:
+      security:
+        - JWTToken: []
+      summary: get user runs for namespace [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: query
+          name: skip
+          schema:
+            type: number
+          description: skip results
+        - in: query
+          name: limit
+          schema:
+            type: number
+          description: number of runs to return
+        - in: query
+          name: all
+          schema:
+            type: number
+          description: set to 1 to get runs for all namespace members [admin or owner]
+      responses:
+        '200':
+          description: endpoint info
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  endpoint:
+                    type: object
+        '403':
+          description: invalid token
+        '404':
+          description: run id not found
