@@ -925,6 +925,21 @@ var GetNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+func getTemplate(id string) (*terraModel.Template, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	tplID, _ := primitive.ObjectIDFromHex(id)
+	ns := bson.M{
+		"_id": tplID,
+	}
+	var template *terraModel.Template
+	err := templateCollection.FindOne(ctx, ns).Decode(template)
+	if err == mongo.ErrNoDocuments {
+		return nil, err
+	}
+	return template, nil
+}
+
 // CreateNSAppHandler creates a new application for namespace
 var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -989,7 +1004,12 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 	possibleBaseImagesSet := make(map[string]bool, 0)
 	possibleBaseImages := make([]string, 0)
 
-	for _, rec := range data.Recipes {
+	recipes := make([]string, 0)
+	for _, templateRecipes := range data.TemplateRecipes {
+		recipes = append(recipes, templateRecipes...)
+	}
+
+	for _, rec := range recipes {
 		parentBaseImages, parentErr := checkRecipeImage(rec, data.Namespace)
 		if parentErr != nil {
 			w.Header().Add("Content-Type", "application/json")
@@ -1721,7 +1741,7 @@ func getTerraTemplates(userID string, nsID string, app string, run *terraModel.R
 	endpointID, _ := primitive.ObjectIDFromHex(run.Endpoint)
 	ns = bson.M{
 		// "namespace": nsID,
-		"_id":       endpointID,
+		"_id": endpointID,
 	}
 	var endpointDb terraModel.EndPoint
 	err = endpointCollection.FindOne(ctx, ns).Decode(&endpointDb)
@@ -1756,6 +1776,17 @@ func getTerraTemplates(userID string, nsID string, app string, run *terraModel.R
 
 	variablesTf = ""
 	loadedVariables := make(map[string]bool)
+
+	// Template recipe variables
+	for _, tplVar := range tplDb.VarRecipes {
+		var tplRecipes []string
+		var ok bool
+		if tplRecipes, ok = appDb.TemplateRecipes[tplVar]; !ok {
+			return "", "", fmt.Errorf("recipe list for template not defined: %s", tplVar)
+		}
+		recipeList, _ := json.Marshal(tplRecipes)
+		variablesTf += fmt.Sprintf("variable %s {\n    default=%s\n}\n", tplVar, recipeList)
+	}
 
 	// Run
 	for key := range run.Inputs {
