@@ -1812,7 +1812,10 @@ func getTerraTemplates(userID string, nsID string, app string, run *terraModel.R
 	// Endpoint
 	if endpointDb.Public || IsMemberOfNS(nsCollection, endpointDb.Namespace, userID) {
 		for key := range endpointDb.Config {
-			variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", key, endpointDb.Config[key])
+			// If var not overloaded at run
+			if _, ok := loadedVariables[key]; !ok {
+				variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", key, endpointDb.Config[key])
+			}
 		}
 	}
 
