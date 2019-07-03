@@ -1336,14 +1336,6 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 		var endpointdb terraModel.EndPoint
 		cursor.Decode(&endpointdb)
 		appInputs.EndPoints[endpointdb.Name] = endpointdb.Inputs
-		/*
-			appInputs.EndPoints["openstack"] = endpointdb.Inputs
-			for k, v := range endpointdb.Openstack.Inputs {
-				appInputs.EndPoints["openstack"][k] = v
-			}
-
-			endpoints = append(endpoints, endpointdb)
-		*/
 	}
 
 	resp := map[string]interface{}{"app": appInputs}
