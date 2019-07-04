@@ -758,6 +758,36 @@ var GetNSRecipesHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+//GetPublicAppsHandler
+var GetPublicAppsHandler = func(w http.ResponseWriter, r *http.Request) {
+	_, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"public": true,
+	}
+
+	apps := make([]terraModel.Application, 0)
+	cursor, err := appCollection.Find(ctx, ns)
+	for cursor.Next(ctx) {
+		var appdb terraModel.Application
+		cursor.Decode(&appdb)
+		apps = append(apps, appdb)
+	}
+
+	resp := map[string]interface{}{"apps": apps}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
 // GetPublicRecipesHandler get namespace recipes
 var GetPublicRecipesHandler = func(w http.ResponseWriter, r *http.Request) {
 	_, err := CheckToken(r.Header.Get("Authorization"))
@@ -999,7 +1029,7 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	baseImage := ""
+	// baseImage := ""
 	possibleBaseImagesNew := true
 	possibleBaseImagesSet := make(map[string]bool, 0)
 	possibleBaseImages := make([]string, 0)
@@ -1050,11 +1080,7 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// We may have multiple common base image for recipes, take first
-	if len(possibleBaseImages) > 0 {
-		baseImage = possibleBaseImages[0]
-	}
-
-	if baseImage == "" {
+	if len(possibleBaseImages) == 0 {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
 		respError := map[string]interface{}{"message": "could not find a base image in recipes"}
@@ -1062,7 +1088,7 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data.Image = baseImage
+	data.Image = possibleBaseImages
 
 	newapp, err := appCollection.InsertOne(ctx, data)
 	if err != nil {
@@ -1792,12 +1818,21 @@ func getTerraTemplates(userID string, nsID string, app string, run *terraModel.R
 		loadedVariables[key] = true
 	}
 
-	imageID := appDb.Image
-	if val, ok := endpointDb.Images[appDb.Image]; ok {
-		imageID = val
-	}
-
 	if _, ok := loadedVariables["image_id"]; !ok {
+		imageID := ""
+		foundImage := false
+		for _, image := range appDb.Image {
+			if val, ok := endpointDb.Images[image]; ok {
+				imageID = val
+				foundImage = true
+				log.Debug().Str("uid", userID).Str("ns", nsID).Str("run", run.ID.Hex()).Msgf("Using image %s:%s for run %s", image, imageID)
+				break
+			}
+		}
+		if foundImage {
+		} else {
+			return variablesTf, appTf, fmt.Errorf("Could not find image id for image %s in endpoint %s", endpointDb.Name)
+		}
 		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "image_id", imageID)
 	}
 
@@ -2380,6 +2415,7 @@ func main() {
 	r.HandleFunc("/deploy/recipes", GetPublicRecipesHandler).Methods("GET")     // Get public recipes
 	r.HandleFunc("/deploy/templates", GetPublicTemplatesHandler).Methods("GET") // Get public templates
 	r.HandleFunc("/deploy/endpoints", GetPublicEndpointsHandler).Methods("GET") // Get public endpoints
+	r.HandleFunc("/deploy/apps", GetPublicAppsHandler).Methods("GET")           // Get public endpoints
 
 	// TODO update openapi.yaml
 	// For the moment template api is not used,embeded in app definition
