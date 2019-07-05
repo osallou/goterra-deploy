@@ -758,7 +758,7 @@ var GetNSRecipesHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-//GetPublicAppsHandler
+//GetPublicAppsHandler returns all public applications
 var GetPublicAppsHandler = func(w http.ResponseWriter, r *http.Request) {
 	_, err := CheckToken(r.Header.Get("Authorization"))
 	if err != nil {
@@ -1738,7 +1738,39 @@ var GetNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 
 // Run *******************************************
 
-func getTerraTemplates(userID string, nsID string, app string, run *terraModel.Run) (variablesTf string, appTf string, err error) {
+func getUserSSHKey(token string) string {
+	config := terraConfig.LoadConfig()
+
+	// Add user ssh key if exists
+	client := &http.Client{}
+	remote := []string{config.URL, "/auth/me"}
+	req, _ := http.NewRequest("GET", strings.Join(remote, "/"), nil)
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Error().Msg("failed to contact auth server\n")
+		return ""
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		log.Error().Msgf("failed to get user info %d\n", resp.StatusCode)
+		return ""
+	}
+	respData := &terraUser.User{}
+	json.NewDecoder(resp.Body).Decode(respData)
+	sshPubKey := respData.SSHPubKey
+	if sshPubKey != "" {
+		return sshPubKey
+	}
+	return ""
+
+}
+
+func getTerraTemplates(userID string, nsID string, app string, run *terraModel.Run, token string) (variablesTf string, appTf string, err error) {
+	config := terraConfig.LoadConfig()
+
 	appID, _ := primitive.ObjectIDFromHex(app)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -1825,13 +1857,13 @@ func getTerraTemplates(userID string, nsID string, app string, run *terraModel.R
 			if val, ok := endpointDb.Images[image]; ok {
 				imageID = val
 				foundImage = true
-				log.Debug().Str("uid", userID).Str("ns", nsID).Str("run", run.ID.Hex()).Msgf("Using image %s:%s for run %s", image, imageID)
+				log.Debug().Str("uid", userID).Str("ns", nsID).Str("run", run.ID.Hex()).Msgf("Using image %s:%s", image, imageID)
 				break
 			}
 		}
 		if foundImage {
 		} else {
-			return variablesTf, appTf, fmt.Errorf("Could not find image id for image %s in endpoint %s", endpointDb.Name)
+			return variablesTf, appTf, fmt.Errorf("Could not find image id for image in endpoint %s", endpointDb.Name)
 		}
 		variablesTf += fmt.Sprintf("variable %s {\n    default=\"%s\"\n}\n", "image_id", imageID)
 	}
@@ -1849,8 +1881,6 @@ func getTerraTemplates(userID string, nsID string, app string, run *terraModel.R
 	for key := range endpointDb.Features {
 		variablesTf += fmt.Sprintf("variable feature_%s {\n    default=\"%s\"\n}\n", key, endpointDb.Features[key])
 	}
-
-	config := terraConfig.LoadConfig()
 
 	// General
 	if _, ok := loadedVariables["got_url"]; !ok {
@@ -1892,7 +1922,7 @@ var CreateRunTerraformHandlerHandler = func(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	variablesTf, appTf, errTf := getTerraTemplates(claims.UID, nsID, vars["application"], run)
+	variablesTf, appTf, errTf := getTerraTemplates(claims.UID, nsID, vars["application"], run, r.Header.Get("Authorization"))
 	if errTf != nil {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -1933,7 +1963,7 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	variablesTf, appTf, errTf := getTerraTemplates(claims.UID, nsID, vars["application"], run)
+	variablesTf, appTf, errTf := getTerraTemplates(claims.UID, nsID, vars["application"], run, r.Header.Get("Authorization"))
 	if errTf != nil {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
@@ -2027,6 +2057,10 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if run.Inputs != nil {
+		if _, ok := run.Inputs["ssh_pub_key"]; !ok {
+			sshKey := getUserSSHKey(r.Header.Get("Authorization"))
+			run.Inputs["ssh_pub_key"] = sshKey
+		}
 		runInputs, runInputsErr := json.Marshal(run.Inputs)
 		if runInputsErr == nil {
 			errEnvFile := ioutil.WriteFile(runPath+"/goterra.env", runInputs, 0644)
