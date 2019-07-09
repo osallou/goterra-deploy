@@ -1183,15 +1183,15 @@ var GetNSAppsHandler = func(w http.ResponseWriter, r *http.Request) {
 // GetNSAppHandler get namespace application
 var GetNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	nsID := vars["id"]
+	// nsID := vars["id"]
 	appID, _ := primitive.ObjectIDFromHex(vars["application"])
 	claims, claimserr := CheckToken(r.Header.Get("Authorization"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	ns := bson.M{
-		"namespace": nsID,
-		"_id":       appID,
+		// "namespace": nsID,
+		"_id": appID,
 	}
 
 	var appdb terraModel.Application
@@ -1248,7 +1248,8 @@ func getTemplateInputs(template string, ns string) (map[string]string, error) {
 		return nil, fmt.Errorf("no template found %s", template)
 	}
 	if !recdb.Public && recdb.Namespace != ns {
-		return nil, fmt.Errorf("template is not public or in namespace %s", template)
+		log.Error().Str("ns", ns).Str("tplns", recdb.Namespace).Msgf("template is not public or user not in namespace")
+		return nil, fmt.Errorf("template is not public or user not in namespace %s", template)
 	}
 	return recdb.Inputs, nil
 
@@ -1335,7 +1336,7 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 	if tplInputs != nil {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		respError := map[string]interface{}{"message": "failed to get template inputs"}
+		respError := map[string]interface{}{"message": fmt.Sprintf("failed to get template inputs: %s", tplInputs)}
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
@@ -1353,6 +1354,13 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 	// Get endpoints
 	epns := bson.M{
 		"namespace": nsID,
+	}
+
+	epns = bson.M{
+		"$or": []interface{}{
+			bson.M{"namespace": nsID},
+			bson.M{"public": true},
+		},
 	}
 
 	appInputs.EndPoints = make(map[string]map[string]string)
