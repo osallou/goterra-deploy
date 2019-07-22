@@ -1796,13 +1796,15 @@ var GetNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 
 // AppExpectedInputs gets all inputs from app, recipes and defined endpoints
 type AppExpectedInputs struct {
-	Template  map[string]string            `json:"template"`
-	Recipes   map[string]string            `json:"recipes"`
-	EndPoints map[string]map[string]string `json:"endpoints"`
+	Template          map[string]string              `json:"template"`
+	Recipes           map[string]string              `json:"recipes"`
+	EndPoints         map[string]map[string]string   `json:"endpoints"`
+	EndPointsDefaults map[string]map[string][]string `json:"endpointdefaults"`
+	Defaults          map[string][]string            `json:"defaults"`
 }
 
 // getTemplateInputs get template inputs
-func getTemplateInputs(template string, ns string) (map[string]string, error) {
+func getTemplateInputs(template string, ns string) (map[string]string, map[string][]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1813,18 +1815,18 @@ func getTemplateInputs(template string, ns string) (map[string]string, error) {
 	var recdb terraModel.Template
 	recerr := templateCollection.FindOne(ctx, recfilter).Decode(&recdb)
 	if recerr == mongo.ErrNoDocuments {
-		return nil, fmt.Errorf("no template found %s", template)
+		return nil, nil, fmt.Errorf("no template found %s", template)
 	}
 	if !recdb.Public && recdb.Namespace != ns {
 		log.Error().Str("ns", ns).Str("tplns", recdb.Namespace).Msgf("template is not public or user not in namespace")
-		return nil, fmt.Errorf("template is not public or user not in namespace %s", template)
+		return nil, nil, fmt.Errorf("template is not public or user not in namespace %s", template)
 	}
-	return recdb.Inputs, nil
+	return recdb.Inputs, recdb.Defaults, nil
 
 }
 
 // getRecipeInputs get (sub)recipe inputs
-func getRecipeInputs(recipe string, ns string) (map[string]string, error) {
+func getRecipeInputs(recipe string, ns string) (map[string]string, map[string][]string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1835,25 +1837,28 @@ func getRecipeInputs(recipe string, ns string) (map[string]string, error) {
 	var recdb terraModel.Recipe
 	recerr := recipeCollection.FindOne(ctx, recfilter).Decode(&recdb)
 	if recerr == mongo.ErrNoDocuments {
-		return nil, fmt.Errorf("no recipe found %s", recipe)
+		return nil, nil, fmt.Errorf("no recipe found %s", recipe)
 	}
 	if !recdb.Public && recdb.Namespace != ns {
-		return nil, fmt.Errorf("recipe is not public or in namespace %s", recipe)
+		return nil, nil, fmt.Errorf("recipe is not public or in namespace %s", recipe)
 	}
 	if recdb.ParentRecipe != "" {
-		parentInputs, err := getRecipeInputs(recdb.ParentRecipe, ns)
+		parentInputs, parentDefaults, err := getRecipeInputs(recdb.ParentRecipe, ns)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		for k, v := range parentInputs {
 			recdb.Inputs[k] = v
 		}
-		return recdb.Inputs, nil
+		for k, v := range parentDefaults {
+			recdb.Defaults[k] = v
+		}
+		return recdb.Inputs, recdb.Defaults, nil
 	}
 	if recdb.BaseImages == nil || len(recdb.BaseImages) == 0 {
-		return nil, fmt.Errorf("recipe has no base image nor parent recipe")
+		return nil, nil, fmt.Errorf("recipe has no base image nor parent recipe")
 	}
-	return recdb.Inputs, nil
+	return recdb.Inputs, recdb.Defaults, nil
 
 }
 
@@ -1900,7 +1905,7 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 
 	appInputs := &AppExpectedInputs{}
 	var tplInputs error
-	appInputs.Template, tplInputs = getTemplateInputs(appdb.Template, nsID)
+	appInputs.Template, appInputs.Defaults, tplInputs = getTemplateInputs(appdb.Template, nsID)
 	if tplInputs != nil {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
@@ -1908,13 +1913,23 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
+	if appInputs.Defaults == nil {
+		appInputs.Defaults = make(map[string][]string)
+	}
 	// Get recipes
 	appInputs.Recipes = make(map[string]string)
 	for _, recipe := range appdb.Recipes {
-		elts, eltserr := getRecipeInputs(recipe, nsID)
+		elts, recipeDefaults, eltserr := getRecipeInputs(recipe, nsID)
 		if eltserr == nil && elts != nil {
 			for eltsk, eltsv := range elts {
 				appInputs.Recipes[eltsk] = eltsv
+				if appInputs.Defaults != nil {
+					for recDefKey, recDefVal := range recipeDefaults {
+						if _, ok := appInputs.Defaults[recDefKey]; !ok {
+							appInputs.Defaults[recDefKey] = recDefVal
+						}
+					}
+				}
 			}
 		}
 	}
@@ -1932,12 +1947,14 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	appInputs.EndPoints = make(map[string]map[string]string)
+	appInputs.EndPointsDefaults = make(map[string]map[string][]string)
 	// endpoints := make([]EndPoint, 0)
 	cursor, err := endpointCollection.Find(ctx, epns)
 	for cursor.Next(ctx) {
 		var endpointdb terraModel.EndPoint
 		cursor.Decode(&endpointdb)
 		appInputs.EndPoints[endpointdb.Name] = endpointdb.Inputs
+		appInputs.EndPointsDefaults[endpointdb.Name] = endpointdb.Defaults
 	}
 
 	resp := map[string]interface{}{"app": appInputs}
