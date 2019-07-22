@@ -32,10 +32,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
-	terraToken "github.com/osallou/goterra-lib/lib/token"
-	// terraDeployUtils "github.com/osallou/goterra-deploy/lib"
-	// terraDb "github.com/osallou/goterra/lib/db"
 	terraModel "github.com/osallou/goterra-lib/lib/model"
+	terraToken "github.com/osallou/goterra-lib/lib/token"
 )
 
 // Version of server
@@ -310,6 +308,106 @@ var CreateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// DeleteNSHandler deletes namespace
+var DeleteNSHandler = func(w http.ResponseWriter, r *http.Request) {
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	objID, _ := primitive.ObjectIDFromHex(nsID)
+	ns := bson.M{
+		"_id": objID,
+	}
+
+	var nsdb NSData
+	err = nsCollection.FindOne(ctx, ns).Decode(&nsdb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "namespace does not exists"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	isOwner := false
+	for _, owner := range nsdb.Owners {
+		if owner == claims.UID {
+			isOwner = true
+			break
+		}
+	}
+	if !isOwner && claims.Admin == false {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not namespace owner"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	recipeFilter := bson.M{
+		"namespace": nsID,
+	}
+
+	nbRecipes, err := recipeCollection.CountDocuments(ctx, recipeFilter)
+	if nbRecipes > 0 {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "namespace has recipes"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	templateFilter := bson.M{
+		"namespace": nsID,
+	}
+
+	nbTemplates, err := templateCollection.CountDocuments(ctx, templateFilter)
+	if nbTemplates > 0 {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "namespace has templates"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	appFilter := bson.M{
+		"namespace": nsID,
+	}
+
+	nbApps, err := appCollection.CountDocuments(ctx, appFilter)
+	if nbApps > 0 {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "namespace has applications"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	_, err = nsCollection.DeleteOne(ctx, ns)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		log.Error().Str("namespace", nsID).Msgf("failed to delete namespace: %s", err)
+		respError := map[string]interface{}{"message": "failed to delete namespace"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	resp := map[string]interface{}{"ns": nsID}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
 // UpdateNSHandler updates namespace info
 var UpdateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 	claims, err := CheckToken(r.Header.Get("Authorization"))
@@ -388,7 +486,7 @@ var UpdateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// GetNSHandler updates namespace info
+// GetNSHandler returns namespace info
 var GetNSHandler = func(w http.ResponseWriter, r *http.Request) {
 	claims, err := CheckToken(r.Header.Get("Authorization"))
 	if err != nil {
@@ -603,6 +701,161 @@ var GetNSTemplatesHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// DeleteNSTemplateHandler deletes a template
+var DeleteNSTemplateHandler = func(w http.ResponseWriter, r *http.Request) {
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	templateID := vars["template"]
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	objID, _ := primitive.ObjectIDFromHex(templateID)
+	ns := bson.M{
+		"_id": objID,
+	}
+	var templatedb terraModel.Template
+	err = templateCollection.FindOne(ctx, ns).Decode(&templatedb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "template does not exists"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	if !claims.Admin && !IsMemberOfNS(nsCollection, templatedb.Namespace, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not template owner"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	appFilter := bson.M{
+		"template": templateID,
+	}
+
+	nbApps, err := appCollection.CountDocuments(ctx, appFilter)
+	if nbApps > 0 {
+		log.Error().Str("namespace", nsID).Str("template", templateID).Msg("Cannot delete: template is used by some applications")
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "template is used by some applications"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	_, err = templateCollection.DeleteOne(ctx, ns)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		log.Error().Str("namespace", nsID).Str("template", templateID).Msgf("failed to delete template: %s", err)
+		respError := map[string]interface{}{"message": "failed to delete template"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	resp := map[string]interface{}{"template": templateID}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// UpdateNSTemplateHandler modifies a template unless frozen
+var UpdateNSTemplateHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	templateID, _ := primitive.ObjectIDFromHex(vars["template"])
+
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"_id": templateID,
+	}
+
+	var templatedb terraModel.Template
+	err = templateCollection.FindOne(ctx, ns).Decode(&templatedb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "template not found"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	if templatedb.Frozen {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "template is frozen"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	if !claims.Admin && !IsMemberOfNS(nsCollection, templatedb.Namespace, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not template owner"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	data := &terraModel.Template{}
+	err = json.NewDecoder(r.Body).Decode(data)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to decode message"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	t := time.Now()
+	data.Timestamp = t.Unix()
+	// Do not allow to modify integrity
+	data.Namespace = templatedb.Namespace
+	data.ID = templatedb.ID
+
+	templateUpdate := bson.M{
+		"$set": data,
+	}
+
+	updatedTemplate := terraModel.Template{}
+
+	upErr := templateCollection.FindOneAndUpdate(ctx, ns, templateUpdate).Decode(&updatedTemplate)
+	if upErr != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to update template"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	config := terraConfig.LoadConfig()
+	remote := []string{config.URL, "deploy", "ns", nsID, "template", updatedTemplate.ID.Hex()}
+	w.Header().Add("Content-Type", "application/json")
+	w.Header().Add("Location", strings.Join(remote, "/"))
+
+	resp := map[string]interface{}{"template": updatedTemplate}
+	json.NewEncoder(w).Encode(resp)
+}
+
 // GetNSTemplateHandler get namespace template
 var GetNSTemplateHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -646,6 +899,93 @@ var GetNSTemplateHandler = func(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]interface{}{"template": templatedb}
 	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// UpdateNSRecipeHandler modifies a recipe unless frozen
+var UpdateNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	recipeID, _ := primitive.ObjectIDFromHex(vars["recipe"])
+
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ns := bson.M{
+		"_id": recipeID,
+	}
+
+	var recipedb terraModel.Recipe
+	err = recipeCollection.FindOne(ctx, ns).Decode(&recipedb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "recipe not found"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	if recipedb.Frozen {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "recipe is frozen"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	if !claims.Admin && !IsMemberOfNS(nsCollection, recipedb.Namespace, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not recipe owner"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	data := &terraModel.Recipe{}
+	err = json.NewDecoder(r.Body).Decode(data)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to decode message"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	t := time.Now()
+	data.Timestamp = t.Unix()
+	// Do not allow to modify integrity
+	data.Namespace = recipedb.Namespace
+	data.ID = recipedb.ID
+
+	recipeUpdate := bson.M{
+		"$set": data,
+	}
+
+	updatedRecipe := terraModel.Recipe{}
+
+	upErr := recipeCollection.FindOneAndUpdate(ctx, ns, recipeUpdate).Decode(&updatedRecipe)
+	if upErr != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to update recipe"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	config := terraConfig.LoadConfig()
+	remote := []string{config.URL, "deploy", "ns", nsID, "recipe", updatedRecipe.ID.Hex()}
+	w.Header().Add("Content-Type", "application/json")
+	w.Header().Add("Location", strings.Join(remote, "/"))
+
+	resp := map[string]interface{}{"recipe": updatedRecipe}
 	json.NewEncoder(w).Encode(resp)
 }
 
@@ -909,6 +1249,92 @@ var GetPublicTemplatesHandler = func(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// DeleteNSRecipeHandler delete recipe in namespace
+var DeleteNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	recipeID := vars["recipe"]
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	objID, _ := primitive.ObjectIDFromHex(recipeID)
+	ns := bson.M{
+		"_id": objID,
+	}
+
+	var recipedb terraModel.Recipe
+	err = recipeCollection.FindOne(ctx, ns).Decode(&recipedb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "recipe does not exists"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	if !claims.Admin && !IsMemberOfNS(nsCollection, recipedb.Namespace, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not recipe owner"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	allApps := bson.M{}
+
+	cursor, err := appCollection.Find(ctx, allApps)
+	hasAppUsingRecipe := false
+	for cursor.Next(ctx) {
+		var appdb terraModel.Application
+		cursor.Decode(&appdb)
+		for _, value := range appdb.TemplateRecipes {
+			for _, recipe := range value {
+				if recipe == recipeID {
+					hasAppUsingRecipe = true
+					break
+				}
+			}
+			if hasAppUsingRecipe {
+				break
+			}
+
+		}
+
+	}
+	if hasAppUsingRecipe {
+		log.Error().Str("namespace", nsID).Str("recipe", recipeID).Msg("Cannot delete: recipe is used by some applications")
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "Recipe is used by some applications"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	_, err = recipeCollection.DeleteOne(ctx, ns)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		log.Error().Str("namespace", nsID).Str("recipe", recipeID).Msgf("failed to delete recipe: %s", err)
+		respError := map[string]interface{}{"message": "failed to delete recipe"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	resp := map[string]interface{}{"recipe": recipeID}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+
+}
+
 // GetNSRecipeHandler get namespace recipe
 var GetNSRecipeHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -1141,6 +1567,93 @@ func checkRecipeImage(recipe string, ns string) ([]string, error) {
 
 }
 
+// UpdateNSAppHandler modifies an application unless frozen
+var UpdateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	appID, _ := primitive.ObjectIDFromHex(vars["application"])
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	ns := bson.M{
+		"_id": appID,
+	}
+
+	var appdb terraModel.Application
+	err = appCollection.FindOne(ctx, ns).Decode(&appdb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "application not found"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	if appdb.Frozen {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "application is frozen"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	if !claims.Admin && !IsMemberOfNS(nsCollection, appdb.Namespace, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not application owner"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	data := &terraModel.Application{}
+	err = json.NewDecoder(r.Body).Decode(data)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to decode message"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	t := time.Now()
+	data.Timestamp = t.Unix()
+	// Do not allow to modify integrity
+	data.Namespace = appdb.Namespace
+	data.ID = appdb.ID
+
+	appUpdate := bson.M{
+		"$set": data,
+	}
+
+	updatedApp := terraModel.Application{}
+
+	upErr := appCollection.FindOneAndUpdate(ctx, ns, appUpdate).Decode(&updatedApp)
+	if upErr != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "failed to update application"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	config := terraConfig.LoadConfig()
+	remote := []string{config.URL, "deploy", "ns", nsID, "app", updatedApp.ID.Hex()}
+	w.Header().Add("Content-Type", "application/json")
+	w.Header().Add("Location", strings.Join(remote, "/"))
+
+	resp := map[string]interface{}{"app": updatedApp}
+	json.NewEncoder(w).Encode(resp)
+}
+
 // GetNSAppsHandler get namespace apps
 var GetNSAppsHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -1176,6 +1689,61 @@ var GetNSAppsHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]interface{}{"apps": apps}
+	w.Header().Add("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// DeleteNSAppHandler removes application from namespace
+var DeleteNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	appID := vars["application"]
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	objID, _ := primitive.ObjectIDFromHex(appID)
+	ns := bson.M{
+		"_id": objID,
+	}
+
+	var appdb terraModel.Application
+	err = appCollection.FindOne(ctx, ns).Decode(&appdb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "application does not exists"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	if !claims.Admin && !IsMemberOfNS(nsCollection, appdb.Namespace, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not application owner"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	_, err = appCollection.DeleteOne(ctx, ns)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		log.Error().Str("namespace", nsID).Str("app", appID).Msgf("failed to delete app: %s", err)
+		respError := map[string]interface{}{"message": "failed to delete application"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	resp := map[string]interface{}{"app": appID}
 	w.Header().Add("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
@@ -1654,6 +2222,61 @@ var CreateNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]interface{}{"endpoint": newendpoint.InsertedID}
 
+	json.NewEncoder(w).Encode(resp)
+}
+
+// DeleteNSEndpointHandler deletes a namespace endpoint
+var DeleteNSEndpointHandler = func(w http.ResponseWriter, r *http.Request) {
+	claims, err := CheckToken(r.Header.Get("Authorization"))
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": fmt.Sprintf("Auth error: %s", err)}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	endpointID := vars["endpoint"]
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	objID, _ := primitive.ObjectIDFromHex(endpointID)
+	ns := bson.M{
+		"_id": objID,
+	}
+
+	var endpointdb terraModel.EndPoint
+	err = endpointCollection.FindOne(ctx, ns).Decode(&endpointdb)
+	if err == mongo.ErrNoDocuments {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "endpoint does not exists"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	if !claims.Admin && !IsMemberOfNS(nsCollection, endpointdb.Namespace, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not endpoint owner"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	_, err = endpointCollection.DeleteOne(ctx, ns)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		log.Error().Str("namespace", nsID).Str("endpoint", endpointID).Msgf("failed to delete endpoint: %s", err)
+		respError := map[string]interface{}{"message": "failed to delete endpoint"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	resp := map[string]interface{}{"endpoint": endpointID}
+	w.Header().Add("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
 }
 
@@ -2374,6 +2997,55 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 
 // End of Run ************************************
 
+func setRoutes(r *mux.Router) {
+	r.HandleFunc("/deploy", HomeHandler).Methods("GET")
+	r.HandleFunc("/deploy/session/bind", BindHandler).Methods("POST")
+	r.HandleFunc("/deploy/ns", GetNSALLHandler).Methods("GET")         // admin only, get namespaces
+	r.HandleFunc("/deploy/ns", CreateNSHandler).Methods("POST")        // create a namespace, user becomes owner
+	r.HandleFunc("/deploy/ns/{id}", UpdateNSHandler).Methods("PUT")    // update name, owners and members
+	r.HandleFunc("/deploy/ns/{id}", GetNSHandler).Methods("GET")       // get owners and members
+	r.HandleFunc("/deploy/ns/{id}", DeleteNSHandler).Methods("DELETE") // Delete namespace
+
+	r.HandleFunc("/deploy/ns/{id}/recipe", CreateNSRecipeHandler).Methods("POST")            // create recipe
+	r.HandleFunc("/deploy/ns/{id}/recipe", GetNSRecipesHandler).Methods("GET")               // get recipes
+	r.HandleFunc("/deploy/ns/{id}/recipe/{recipe}", GetNSRecipeHandler).Methods("GET")       // get recipe
+	r.HandleFunc("/deploy/ns/{id}/recipe/{recipe}", UpdateNSRecipeHandler).Methods("PUT")    // update recipe
+	r.HandleFunc("/deploy/ns/{id}/recipe/{recipe}", DeleteNSRecipeHandler).Methods("DELETE") // delete recipe
+
+	r.HandleFunc("/deploy/ns/{id}/app", CreateNSAppHandler).Methods("POST")                        // create app
+	r.HandleFunc("/deploy/ns/{id}/app", GetNSAppsHandler).Methods("GET")                           // get namespace apps
+	r.HandleFunc("/deploy/ns/{id}/app/{application}", UpdateNSAppHandler).Methods("PUT")           // update app
+	r.HandleFunc("/deploy/ns/{id}/app/{application}", GetNSAppHandler).Methods("GET")              //get app
+	r.HandleFunc("/deploy/ns/{id}/app/{application}/inputs", GetNSAppInputsHandler).Methods("GET") //get app input requirements
+	r.HandleFunc("/deploy/ns/{id}/app/{application}", DeleteNSAppHandler).Methods("DELETE")        //delete app
+
+	r.HandleFunc("/deploy/ns/{id}/run", GetNSRunsHandler).Methods("GET")                // Get all user runs for this NS
+	r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST") // deploy app
+	r.HandleFunc("/deploy/ns/{id}/run/{run}", GetRunHandler).Methods("GET")
+	r.HandleFunc("/deploy/ns/{id}/run/{application}/terraform", CreateRunTerraformHandlerHandler).Methods("POST") //get terraform templates for a run but do not deploy app
+	r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")                                 // stop run
+
+	r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")                              // get ns endpoints
+	r.HandleFunc("/deploy/ns/{id}/endpoint", CreateNSEndpointHandler).Methods("POST")                           // add endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", DeleteNSEndpointHandler).Methods("DELETE")              // delete endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", GetNSEndpointHandler).Methods("GET")                    // get endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", CreateNSEndpointSecretHandler).Methods("PUT")    // create/update user secret for this endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", DeleteNSEndpointSecretHandler).Methods("DELETE") // delete user secret for this endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", GetNSEndpointSecretHandler).Methods("GET")       // checks if user has a secret for this endpoint
+
+	r.HandleFunc("/deploy/run", GetRunsHandler).Methods("GET")                  // Get all user runs
+	r.HandleFunc("/deploy/recipes", GetPublicRecipesHandler).Methods("GET")     // Get public recipes
+	r.HandleFunc("/deploy/templates", GetPublicTemplatesHandler).Methods("GET") // Get public templates
+	r.HandleFunc("/deploy/endpoints", GetPublicEndpointsHandler).Methods("GET") // Get public endpoints
+	r.HandleFunc("/deploy/apps", GetPublicAppsHandler).Methods("GET")           // Get public endpoints
+
+	r.HandleFunc("/deploy/ns/{id}/template", CreateNSTemplateHandler).Methods("POST")              // create template
+	r.HandleFunc("/deploy/ns/{id}/template", GetNSTemplatesHandler).Methods("GET")                 // get templates
+	r.HandleFunc("/deploy/ns/{id}/template/{template}", GetNSTemplateHandler).Methods("GET")       // get template
+	r.HandleFunc("/deploy/ns/{id}/template/{template}", UpdateNSTemplateHandler).Methods("PUT")    // update template
+	r.HandleFunc("/deploy/ns/{id}/template/{template}", DeleteNSTemplateHandler).Methods("DELETE") // delete template
+}
+
 func main() {
 
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
@@ -2415,59 +3087,55 @@ func main() {
 	// userCollection = mongoClient.Database(config.Mongo.DB).Collection("users")
 
 	r := mux.NewRouter()
-	r.HandleFunc("/deploy", HomeHandler).Methods("GET")
-	r.HandleFunc("/deploy/session/bind", BindHandler).Methods("POST")
-	r.HandleFunc("/deploy/ns", GetNSALLHandler).Methods("GET")      // admin only, get namespaces
-	r.HandleFunc("/deploy/ns", CreateNSHandler).Methods("POST")     // create a namespace, user becomes owner
-	r.HandleFunc("/deploy/ns/{id}", UpdateNSHandler).Methods("PUT") // update name, owners and members
-	r.HandleFunc("/deploy/ns/{id}", GetNSHandler).Methods("GET")    // get owners and members
-	// 	r.HandleFunc("/deploy/ns/{id}", DeleteNSHandler).Methods("DELETE")             // Delete namespace
+	setRoutes(r)
+	/*
+		r.HandleFunc("/deploy", HomeHandler).Methods("GET")
+		r.HandleFunc("/deploy/session/bind", BindHandler).Methods("POST")
+		r.HandleFunc("/deploy/ns", GetNSALLHandler).Methods("GET")         // admin only, get namespaces
+		r.HandleFunc("/deploy/ns", CreateNSHandler).Methods("POST")        // create a namespace, user becomes owner
+		r.HandleFunc("/deploy/ns/{id}", UpdateNSHandler).Methods("PUT")    // update name, owners and members
+		r.HandleFunc("/deploy/ns/{id}", GetNSHandler).Methods("GET")       // get owners and members
+		r.HandleFunc("/deploy/ns/{id}", DeleteNSHandler).Methods("DELETE") // Delete namespace
 
-	r.HandleFunc("/deploy/ns/{id}/recipe", CreateNSRecipeHandler).Methods("POST")      // create recipe
-	r.HandleFunc("/deploy/ns/{id}/recipe", GetNSRecipesHandler).Methods("GET")         // get recipes
-	r.HandleFunc("/deploy/ns/{id}/recipe/{recipe}", GetNSRecipeHandler).Methods("GET") // get recipe
-	// r.HandleFunc("/deploy/ns/{id}/recipe/{recipe}", UpdateNSRecipeHandler).Methods("PUT") // update recipe
-	// r.HandleFunc("/deploy/ns/{id}/recipe/{recipe}", DeleteNSRecipeHandler).Methods("DELETE")  // delete recipe
+		r.HandleFunc("/deploy/ns/{id}/recipe", CreateNSRecipeHandler).Methods("POST")            // create recipe
+		r.HandleFunc("/deploy/ns/{id}/recipe", GetNSRecipesHandler).Methods("GET")               // get recipes
+		r.HandleFunc("/deploy/ns/{id}/recipe/{recipe}", GetNSRecipeHandler).Methods("GET")       // get recipe
+		r.HandleFunc("/deploy/ns/{id}/recipe/{recipe}", UpdateNSRecipeHandler).Methods("PUT")    // update recipe
+		r.HandleFunc("/deploy/ns/{id}/recipe/{recipe}", DeleteNSRecipeHandler).Methods("DELETE") // delete recipe
 
-	r.HandleFunc("/deploy/ns/{id}/app", CreateNSAppHandler).Methods("POST") // create app
-	r.HandleFunc("/deploy/ns/{id}/app", GetNSAppsHandler).Methods("GET")    // get namespace apps
-	// r.HandleFunc("/deploy/ns/{id}/app/{application}", UpdateNSAppHandler).Methods("PUT")  // update app
-	r.HandleFunc("/deploy/ns/{id}/app/{application}", GetNSAppHandler).Methods("GET")              //get app
-	r.HandleFunc("/deploy/ns/{id}/app/{application}/inputs", GetNSAppInputsHandler).Methods("GET") //get app input requirements
+		r.HandleFunc("/deploy/ns/{id}/app", CreateNSAppHandler).Methods("POST")                        // create app
+		r.HandleFunc("/deploy/ns/{id}/app", GetNSAppsHandler).Methods("GET")                           // get namespace apps
+		r.HandleFunc("/deploy/ns/{id}/app/{application}", UpdateNSAppHandler).Methods("PUT")           // update app
+		r.HandleFunc("/deploy/ns/{id}/app/{application}", GetNSAppHandler).Methods("GET")              //get app
+		r.HandleFunc("/deploy/ns/{id}/app/{application}/inputs", GetNSAppInputsHandler).Methods("GET") //get app input requirements
+		r.HandleFunc("/deploy/ns/{id}/app/{application}", DeleteNSAppHandler).Methods("DELETE")        //delete app
 
-	// r.HandleFunc("/deploy/ns/{id}/app/{application}", GetNSAppHandler).Methods("DELETE")  //delete app
+		r.HandleFunc("/deploy/ns/{id}/run", GetNSRunsHandler).Methods("GET")                // Get all user runs for this NS
+		r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST") // deploy app
+		r.HandleFunc("/deploy/ns/{id}/run/{run}", GetRunHandler).Methods("GET")
+		r.HandleFunc("/deploy/ns/{id}/run/{application}/terraform", CreateRunTerraformHandlerHandler).Methods("POST") //get terraform templates for a run but do not deploy app
+		r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")                                 // stop run
 
-	// r.HandleFunc("/deploy/recipe", GetPublicRecipesHandler).Methods("GET")  //get public recipes
-	// r.HandleFunc("/deploy/app", GetPublicAppsHandler).Methods("GET")  //get public apps
+		r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")                              // get ns endpoints
+		r.HandleFunc("/deploy/ns/{id}/endpoint", CreateNSEndpointHandler).Methods("POST")                           // add endpoint
+		r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", DeleteNSEndpointHandler).Methods("DELETE")              // delete endpoint
+		r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", GetNSEndpointHandler).Methods("GET")                    // get endpoint
+		r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", CreateNSEndpointSecretHandler).Methods("PUT")    // create/update user secret for this endpoint
+		r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", DeleteNSEndpointSecretHandler).Methods("DELETE") // delete user secret for this endpoint
+		r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", GetNSEndpointSecretHandler).Methods("GET")       // checks if user has a secret for this endpoint
 
-	r.HandleFunc("/deploy/ns/{id}/run", GetNSRunsHandler).Methods("GET")                // Get all user runs for this NS
-	r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST") // deploy app
-	r.HandleFunc("/deploy/ns/{id}/run/{run}", GetRunHandler).Methods("GET")
-	r.HandleFunc("/deploy/ns/{id}/run/{application}/terraform", CreateRunTerraformHandlerHandler).Methods("POST") //get terraform templates for a run but do not deploy app
-	r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")                                 // stop run
+		r.HandleFunc("/deploy/run", GetRunsHandler).Methods("GET")                  // Get all user runs
+		r.HandleFunc("/deploy/recipes", GetPublicRecipesHandler).Methods("GET")     // Get public recipes
+		r.HandleFunc("/deploy/templates", GetPublicTemplatesHandler).Methods("GET") // Get public templates
+		r.HandleFunc("/deploy/endpoints", GetPublicEndpointsHandler).Methods("GET") // Get public endpoints
+		r.HandleFunc("/deploy/apps", GetPublicAppsHandler).Methods("GET")           // Get public endpoints
 
-	r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")                              // get ns endpoints
-	r.HandleFunc("/deploy/ns/{id}/endpoint", CreateNSEndpointHandler).Methods("POST")                           // add endpoint
-	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", GetNSEndpointHandler).Methods("GET")                    // get endpoint
-	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", CreateNSEndpointSecretHandler).Methods("PUT")    // create/update user secret for this endpoint
-	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", DeleteNSEndpointSecretHandler).Methods("DELETE") // delete user secret for this endpoint
-	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", GetNSEndpointSecretHandler).Methods("GET")       // checks if user has a secret for this endpoint
-
-	r.HandleFunc("/deploy/run", GetRunsHandler).Methods("GET")                  // Get all user runs
-	r.HandleFunc("/deploy/recipes", GetPublicRecipesHandler).Methods("GET")     // Get public recipes
-	r.HandleFunc("/deploy/templates", GetPublicTemplatesHandler).Methods("GET") // Get public templates
-	r.HandleFunc("/deploy/endpoints", GetPublicEndpointsHandler).Methods("GET") // Get public endpoints
-	r.HandleFunc("/deploy/apps", GetPublicAppsHandler).Methods("GET")           // Get public endpoints
-
-	// TODO update openapi.yaml
-	// For the moment template api is not used,embeded in app definition
-	r.HandleFunc("/deploy/ns/{id}/template", CreateNSTemplateHandler).Methods("POST")        // create template
-	r.HandleFunc("/deploy/ns/{id}/template", GetNSTemplatesHandler).Methods("GET")           // get templates
-	r.HandleFunc("/deploy/ns/{id}/template/{template}", GetNSTemplateHandler).Methods("GET") // get template
-	// r.HandleFunc("/deploy/ns/{id}/template/{template}", UpdateNSTemplateHandler).Methods("PUT") // update template
-	// r.HandleFunc("/deploy/ns/{id}/template/{template}", DeleteNSTemplateHandler).Methods("DELETE")  // delete template
-
-	// r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", DeleteNSEndpointHandler).Methods("DELETE")  // delete endpoint
+		r.HandleFunc("/deploy/ns/{id}/template", CreateNSTemplateHandler).Methods("POST")              // create template
+		r.HandleFunc("/deploy/ns/{id}/template", GetNSTemplatesHandler).Methods("GET")                 // get templates
+		r.HandleFunc("/deploy/ns/{id}/template/{template}", GetNSTemplateHandler).Methods("GET")       // get template
+		r.HandleFunc("/deploy/ns/{id}/template/{template}", UpdateNSTemplateHandler).Methods("PUT")    // update template
+		r.HandleFunc("/deploy/ns/{id}/template/{template}", DeleteNSTemplateHandler).Methods("DELETE") // delete template
+	*/
 
 	c := cors.New(cors.Options{
 		AllowedOrigins:   []string{"*"},

@@ -28,3 +28,7 @@ in development
 ## License
 
 Apache 2.0
+
+## Testing
+
+    GOT_CONFIG=goterra-test.yml go test -v .

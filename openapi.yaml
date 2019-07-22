@@ -43,6 +43,11 @@ components:
           type: string
         description:
           type: string
+        version:
+          type: string
+        frozen:
+          type: boolean
+          description: prevent updates
         public:
           type: boolean
         namespace:
@@ -71,6 +76,11 @@ components:
           type: string
         description:
           type: string
+        version:
+          type: string
+        frozen:
+          type: boolean
+          description: prevent updates
         public:
           type: boolean
         namespace:
@@ -100,6 +110,11 @@ components:
           type: string
         description:
           type: string
+        version:
+          type: string
+        frozen:
+          type: boolean
+          description: prevent updates
         public:
           type: boolean
         namespace:
