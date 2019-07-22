@@ -1,0 +1,13 @@
+language: go
+services:
+  - mongodb
+sudo: false
+matrix:
+  include:
+  - go: 1.x
+    env: LATEST=true
+  - go: 1.10.x
+  - go: 1.11.x
+script:
+- go vet
+- GOT_CONFIG=goterra-test.yml go test -v ./...
