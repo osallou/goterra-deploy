@@ -2669,7 +2669,7 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	run.Namespace = nsID
 	run.Start = time.Now().Unix()
 	run.End = 0
-	run.Status = "pending"
+	run.Status = "deploy_pending"
 	// Clear sensitive inputs
 	run.SensitiveInputs = make(map[string]string)
 	run.Events = make([]terraModel.Event, 0)
