@@ -1416,6 +1416,8 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	config := terraConfig.LoadConfig()
+
 	data := &terraModel.Application{}
 	err = json.NewDecoder(r.Body).Decode(data)
 	if err != nil {
@@ -1505,6 +1507,10 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 
 	}
 
+	if (data.TemplateRecipes == nil || len(data.TemplateRecipes) == 0) && config.DefaultImage != "" {
+		possibleBaseImages = append(possibleBaseImages, config.DefaultImage)
+	}
+
 	// We may have multiple common base image for recipes, take first
 	if len(possibleBaseImages) == 0 {
 		w.Header().Add("Content-Type", "application/json")
@@ -1525,7 +1531,6 @@ var CreateNSAppHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	config := terraConfig.LoadConfig()
 	remote := []string{config.URL, "deploy", "ns", nsID, "app", newapp.InsertedID.(primitive.ObjectID).Hex()}
 	w.Header().Add("Content-Type", "application/json")
 	w.Header().Add("Location", strings.Join(remote, "/"))
