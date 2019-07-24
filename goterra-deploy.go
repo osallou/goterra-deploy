@@ -1923,15 +1923,17 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 	// Get recipes
 	appInputs.Recipes = make(map[string]string)
-	for _, recipe := range appdb.Recipes {
-		elts, recipeDefaults, eltserr := getRecipeInputs(recipe, nsID)
-		if eltserr == nil && elts != nil {
-			for eltsk, eltsv := range elts {
-				appInputs.Recipes[eltsk] = eltsv
-				if appInputs.Defaults != nil {
-					for recDefKey, recDefVal := range recipeDefaults {
-						if _, ok := appInputs.Defaults[recDefKey]; !ok {
-							appInputs.Defaults[recDefKey] = recDefVal
+	for _, recipes := range appdb.TemplateRecipes {
+		for _, recipe := range recipes {
+			elts, recipeDefaults, eltserr := getRecipeInputs(recipe, nsID)
+			if eltserr == nil && elts != nil {
+				for eltsk, eltsv := range elts {
+					appInputs.Recipes[eltsk] = eltsv
+					if appInputs.Defaults != nil {
+						for recDefKey, recDefVal := range recipeDefaults {
+							if _, ok := appInputs.Defaults[recDefKey]; !ok {
+								appInputs.Defaults[recDefKey] = recDefVal
+							}
 						}
 					}
 				}
