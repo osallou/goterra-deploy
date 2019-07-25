@@ -3108,58 +3108,8 @@ func main() {
 	runCollection = mongoClient.Database(config.Mongo.DB).Collection("run")
 	templateCollection = mongoClient.Database(config.Mongo.DB).Collection("template")
 
-	// userCollection = mongoClient.Database(config.Mongo.DB).Collection("users")
-
 	r := mux.NewRouter()
 	setRoutes(r)
-	/*
-		r.HandleFunc("/deploy", HomeHandler).Methods("GET")
-		r.HandleFunc("/deploy/session/bind", BindHandler).Methods("POST")
-		r.HandleFunc("/deploy/ns", GetNSALLHandler).Methods("GET")         // admin only, get namespaces
-		r.HandleFunc("/deploy/ns", CreateNSHandler).Methods("POST")        // create a namespace, user becomes owner
-		r.HandleFunc("/deploy/ns/{id}", UpdateNSHandler).Methods("PUT")    // update name, owners and members
-		r.HandleFunc("/deploy/ns/{id}", GetNSHandler).Methods("GET")       // get owners and members
-		r.HandleFunc("/deploy/ns/{id}", DeleteNSHandler).Methods("DELETE") // Delete namespace
-
-		r.HandleFunc("/deploy/ns/{id}/recipe", CreateNSRecipeHandler).Methods("POST")            // create recipe
-		r.HandleFunc("/deploy/ns/{id}/recipe", GetNSRecipesHandler).Methods("GET")               // get recipes
-		r.HandleFunc("/deploy/ns/{id}/recipe/{recipe}", GetNSRecipeHandler).Methods("GET")       // get recipe
-		r.HandleFunc("/deploy/ns/{id}/recipe/{recipe}", UpdateNSRecipeHandler).Methods("PUT")    // update recipe
-		r.HandleFunc("/deploy/ns/{id}/recipe/{recipe}", DeleteNSRecipeHandler).Methods("DELETE") // delete recipe
-
-		r.HandleFunc("/deploy/ns/{id}/app", CreateNSAppHandler).Methods("POST")                        // create app
-		r.HandleFunc("/deploy/ns/{id}/app", GetNSAppsHandler).Methods("GET")                           // get namespace apps
-		r.HandleFunc("/deploy/ns/{id}/app/{application}", UpdateNSAppHandler).Methods("PUT")           // update app
-		r.HandleFunc("/deploy/ns/{id}/app/{application}", GetNSAppHandler).Methods("GET")              //get app
-		r.HandleFunc("/deploy/ns/{id}/app/{application}/inputs", GetNSAppInputsHandler).Methods("GET") //get app input requirements
-		r.HandleFunc("/deploy/ns/{id}/app/{application}", DeleteNSAppHandler).Methods("DELETE")        //delete app
-
-		r.HandleFunc("/deploy/ns/{id}/run", GetNSRunsHandler).Methods("GET")                // Get all user runs for this NS
-		r.HandleFunc("/deploy/ns/{id}/run/{application}", CreateRunHandler).Methods("POST") // deploy app
-		r.HandleFunc("/deploy/ns/{id}/run/{run}", GetRunHandler).Methods("GET")
-		r.HandleFunc("/deploy/ns/{id}/run/{application}/terraform", CreateRunTerraformHandlerHandler).Methods("POST") //get terraform templates for a run but do not deploy app
-		r.HandleFunc("/deploy/ns/{id}/run/{run}", DeleteRunHandler).Methods("DELETE")                                 // stop run
-
-		r.HandleFunc("/deploy/ns/{id}/endpoint", GetNSEndpointsHandler).Methods("GET")                              // get ns endpoints
-		r.HandleFunc("/deploy/ns/{id}/endpoint", CreateNSEndpointHandler).Methods("POST")                           // add endpoint
-		r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", DeleteNSEndpointHandler).Methods("DELETE")              // delete endpoint
-		r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}", GetNSEndpointHandler).Methods("GET")                    // get endpoint
-		r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", CreateNSEndpointSecretHandler).Methods("PUT")    // create/update user secret for this endpoint
-		r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", DeleteNSEndpointSecretHandler).Methods("DELETE") // delete user secret for this endpoint
-		r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", GetNSEndpointSecretHandler).Methods("GET")       // checks if user has a secret for this endpoint
-
-		r.HandleFunc("/deploy/run", GetRunsHandler).Methods("GET")                  // Get all user runs
-		r.HandleFunc("/deploy/recipes", GetPublicRecipesHandler).Methods("GET")     // Get public recipes
-		r.HandleFunc("/deploy/templates", GetPublicTemplatesHandler).Methods("GET") // Get public templates
-		r.HandleFunc("/deploy/endpoints", GetPublicEndpointsHandler).Methods("GET") // Get public endpoints
-		r.HandleFunc("/deploy/apps", GetPublicAppsHandler).Methods("GET")           // Get public endpoints
-
-		r.HandleFunc("/deploy/ns/{id}/template", CreateNSTemplateHandler).Methods("POST")              // create template
-		r.HandleFunc("/deploy/ns/{id}/template", GetNSTemplatesHandler).Methods("GET")                 // get templates
-		r.HandleFunc("/deploy/ns/{id}/template/{template}", GetNSTemplateHandler).Methods("GET")       // get template
-		r.HandleFunc("/deploy/ns/{id}/template/{template}", UpdateNSTemplateHandler).Methods("PUT")    // update template
-		r.HandleFunc("/deploy/ns/{id}/template/{template}", DeleteNSTemplateHandler).Methods("DELETE") // delete template
-	*/
 
 	c := cors.New(cors.Options{
 		AllowedOrigins:   []string{"*"},
