@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
+
+	"github.com/rs/zerolog/log"
 
 	"github.com/streadway/amqp"
 	"go.mongodb.org/mongo-driver/bson"
@@ -79,6 +82,9 @@ type RunAction struct {
 
 // SendRunAction sends a message to rabbitmq exchange
 func SendRunAction(action string, id string, secrets map[string]string) error {
+	if os.Getenv("GOT_MOCK_AMQP") == "1" {
+		return nil
+	}
 	config := terraConfig.LoadConfig()
 	if config.Amqp == "" {
 		fmt.Printf("[ERROR] no amqp defined\n")
@@ -86,14 +92,14 @@ func SendRunAction(action string, id string, secrets map[string]string) error {
 	}
 	conn, err := amqp.Dial(config.Amqp)
 	if err != nil {
-		fmt.Printf("[ERROR] failed to send %s for run %s\n", action, id)
+		log.Error().Msgf("[ERROR] failed to send %s for run %s: %s\n", action, id, err)
 		return err
 	}
 	defer conn.Close()
 
 	ch, err := conn.Channel()
 	if err != nil {
-		fmt.Printf("[ERROR] failed to connect to amqp\n")
+		log.Error().Msgf("[ERROR] failed to connect to amqp\n")
 		return err
 	}
 
@@ -107,7 +113,7 @@ func SendRunAction(action string, id string, secrets map[string]string) error {
 		nil,      // arguments
 	)
 	if err != nil {
-		fmt.Printf("[ERROR] failed to connect to open exchange\n")
+		log.Error().Msgf("[ERROR] failed to connect to open exchange\n")
 		return err
 	}
 
@@ -123,7 +129,7 @@ func SendRunAction(action string, id string, secrets map[string]string) error {
 			Body:        []byte(body),
 		})
 	if err != nil {
-		fmt.Printf("[ERROR] failed to send message\n")
+		log.Error().Msgf("[ERROR] failed to send message\n")
 		return err
 	}
 	return nil

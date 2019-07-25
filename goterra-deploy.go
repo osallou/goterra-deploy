@@ -2656,8 +2656,10 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 			if !passwordOk || passwordVal == "" {
 				decodedPassword, decodedErr := decryptData(secretEndpoint.Password)
 				if decodedErr == nil {
-					log.Error().Str("uid", claims.UID).Str("ns", nsID).Msgf("failed to decode user password for endpoint %s", run.Endpoint)
 					sensitiveInputs["password"] = decodedPassword
+				} else {
+					log.Error().Str("uid", claims.UID).Str("ns", nsID).Msgf("failed to decode user password for endpoint %s", run.Endpoint)
+					sensitiveInputs["password"] = ""
 				}
 			}
 			// If no user_name provided, use one defined in endpoint secret

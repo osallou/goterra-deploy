@@ -848,6 +848,108 @@ func _fetchEndpoints(t *testing.T, ns NSData, public bool) ([]terraModel.EndPoin
 	return resData["endpoints"], nil
 }
 
+func _createRun(t *testing.T, ns NSData, app terraModel.Application, run terraModel.Run) (string, error) {
+	jsonData, _ := json.Marshal(run)
+	req, err := http.NewRequest("POST", fmt.Sprintf("/deploy/ns/%s/run/%s", ns.ID.Hex(), app.ID.Hex()), bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusCreated {
+		return "", fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+
+	// Check the response body is what we expect.
+	var resData map[string]string
+	errData := json.NewDecoder(rr.Body).Decode(&resData)
+	if errData != nil {
+		t.Errorf("Invalid response %+v", errData)
+	}
+	return resData["run"], nil
+}
+
+func _fetchRun(t *testing.T, ns NSData, run terraModel.Run) (terraModel.Run, error) {
+	var data terraModel.Run
+	req, err := http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/run/%s", ns.ID.Hex(), run.ID.Hex()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusOK {
+		return data, fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+	var resData terraModel.Run
+	// Check the response body is what we expect.
+	errData := json.NewDecoder(rr.Body).Decode(&resData)
+	if errData != nil {
+		t.Errorf("Invalid response %+v", errData)
+	}
+	return resData, nil
+}
+
+func _fetchRuns(t *testing.T, ns NSData) ([]terraModel.Run, error) {
+	req, err := http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/run", ns.ID.Hex()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusOK {
+		return nil, fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+	var resData map[string][]terraModel.Run
+	// Check the response body is what we expect.
+	errData := json.NewDecoder(rr.Body).Decode(&resData)
+	if errData != nil {
+		t.Errorf("Invalid response %+v", errData)
+	}
+	return resData["runs"], nil
+}
+
+func _deleteRun(t *testing.T, ns NSData, run terraModel.Run) error {
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("/deploy/ns/%s/run/%s", ns.ID.Hex(), run.ID.Hex()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusOK {
+		return fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+
+	return nil
+}
+
 func TestNamespace(t *testing.T) {
 	req, err := http.NewRequest("GET", "/deploy/ns", nil)
 	if err != nil {
@@ -1151,5 +1253,95 @@ func TestEndpoint(t *testing.T) {
 	// Get ns info again, should not exists anymore
 	_, endpointErr = _fetchEndpoint(t, nsData, endpoint)
 	assert.True(t, endpointErr != nil, endpointErr)
+
+}
+
+func TestRun(t *testing.T) {
+	nsID, nsErr := _createNS(t, "test4")
+	if nsErr != nil {
+		t.Fail()
+	}
+	// Get ns info
+	nsData, nsDataErr := _fetchNS(t, nsID)
+	assert.True(t, nsDataErr == nil, nsDataErr)
+
+	images := make([]string, 1)
+	images[0] = "debian"
+	recipe := terraModel.Recipe{
+		Name:       "recipeApp",
+		BaseImages: images,
+	}
+	recipeID, recipeErr := _createRecipe(t, nsData, recipe)
+	assert.True(t, recipeErr == nil, recipeErr)
+	recipe.ID, _ = primitive.ObjectIDFromHex(recipeID)
+
+	recipeVars := make([]string, 1)
+	recipeVars[0] = "recipes"
+
+	tpls := make(map[string]string)
+	tpls["openstack"] = "fake template"
+	template := terraModel.Template{
+		Name:       "tplapptest",
+		Data:       tpls,
+		VarRecipes: recipeVars,
+	}
+	templateID, templateErr := _createTemplate(t, nsData, template)
+	assert.True(t, templateErr == nil, templateErr)
+	template.ID, _ = primitive.ObjectIDFromHex(templateID)
+
+	app := terraModel.Application{}
+	app.Name = "sample app"
+	app.Template = templateID
+	app.TemplateRecipes = make(map[string][]string)
+	app.TemplateRecipes["recipes"] = make([]string, 1)
+	app.TemplateRecipes["recipes"][0] = recipeID
+
+	appID, appErr := _createApp(t, nsData, app)
+	app.ID, _ = primitive.ObjectIDFromHex(appID)
+	assert.True(t, appErr == nil, appErr)
+
+	endpointImages := make(map[string]string)
+	endpointImages["debian"] = "000000000"
+
+	endpoint := terraModel.EndPoint{
+		Name:   "endpoint1",
+		Public: true,
+		Kind:   "openstack",
+		Images: endpointImages,
+	}
+	endpointID, endpointErr := _createEndpoint(t, nsData, endpoint)
+	assert.True(t, endpointErr == nil, endpointErr)
+	endpoint.ID, _ = primitive.ObjectIDFromHex(endpointID)
+
+	newSecret := EndPointSecret{
+		UserName: "me",
+		Password: "test",
+	}
+	secretErr := _createEndpointSecret(t, nsData, endpoint, newSecret)
+	assert.True(t, secretErr == nil, secretErr)
+
+	inputs := make(map[string]string)
+	inputs["ssh_pub_key"] = "fakepubkey"
+
+	run := terraModel.Run{
+		Name:     "runtest",
+		AppID:    appID,
+		Inputs:   inputs,
+		Endpoint: endpointID,
+	}
+
+	os.Setenv("GOT_MOCK_AMQP", "1")
+
+	runID, runErr := _createRun(t, nsData, app, run)
+	assert.True(t, runErr == nil, runErr)
+	run.ID, _ = primitive.ObjectIDFromHex(runID)
+
+	pendingRun, pendingRunErr := _fetchRun(t, nsData, run)
+	assert.True(t, pendingRunErr == nil, pendingRunErr)
+	assert.True(t, pendingRun.Status == "deploy_pending")
+
+	pendingRuns, pendingRunsErr := _fetchRuns(t, nsData)
+	assert.True(t, pendingRunsErr == nil, pendingRunsErr)
+	assert.True(t, len(pendingRuns) > 0)
 
 }

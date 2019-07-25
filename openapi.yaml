@@ -998,7 +998,7 @@ paths:
               schema:
                 type: object
                 properties:
-                  app:
+                  run:
                     type: string
                     description: id of the execution/run
         '403':
@@ -1028,7 +1028,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
+                $ref: '#/components/schemas/Run'
         '403':
           description: invalid token
         '404':
@@ -1302,14 +1302,16 @@ paths:
           description: number of runs to return
       responses:
         '200':
-          description: endpoint info
+          description: run info
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  endpoint:
-                    type: object
+                  runs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Run'
         '403':
           description: invalid token
         '404':
@@ -1349,8 +1351,10 @@ paths:
               schema:
                 type: object
                 properties:
-                  endpoint:
-                    type: object
+                  runs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Run'
         '403':
           description: invalid token
         '404':
