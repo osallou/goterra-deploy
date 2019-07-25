@@ -887,23 +887,6 @@ paths:
           description: invalid token
         '404':
           description: namespace not found         
-  /deploy/app:
-    get:
-      summary: get public applications
-      responses:
-        '200':
-          description: list of applications
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  apps:
-                    type: array
-                    items:
-                      $ref: '#/components/schemas/Application'
-        '403':
-          description: invalid token
   /deploy/recipes:
     get:
       summary: get public recipes
