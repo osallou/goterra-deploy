@@ -341,6 +341,38 @@ func _fetchRecipe(t *testing.T, ns NSData, recipe terraModel.Recipe) (terraModel
 	return resData["recipe"], nil
 }
 
+func _fetchRecipes(t *testing.T, ns NSData, public bool) ([]terraModel.Recipe, error) {
+	var req *http.Request
+	var err error
+	if public {
+		req, err = http.NewRequest("GET", fmt.Sprintf("/deploy/recipes"), nil)
+	} else {
+		req, err = http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/recipe", ns.ID.Hex()), nil)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusOK {
+		return nil, fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+	var resData map[string][]terraModel.Recipe
+	// Check the response body is what we expect.
+	errData := json.NewDecoder(rr.Body).Decode(&resData)
+	if errData != nil {
+		t.Errorf("Invalid response %+v", errData)
+	}
+	return resData["recipes"], nil
+}
+
 func _createTemplate(t *testing.T, ns NSData, template terraModel.Template) (string, error) {
 	jsonData, _ := json.Marshal(template)
 	req, err := http.NewRequest("POST", fmt.Sprintf("/deploy/ns/%s/template", ns.ID.Hex()), bytes.NewBuffer(jsonData))
@@ -445,6 +477,39 @@ func _fetchTemplate(t *testing.T, ns NSData, template terraModel.Template) (terr
 		t.Errorf("Invalid response %+v", errData)
 	}
 	return resData["template"], nil
+}
+
+func _fetchTemplates(t *testing.T, ns NSData, public bool) ([]terraModel.Template, error) {
+
+	var req *http.Request
+	var err error
+	if public {
+		req, err = http.NewRequest("GET", fmt.Sprintf("/deploy/templates"), nil)
+	} else {
+		req, err = http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/template", ns.ID.Hex()), nil)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusOK {
+		return nil, fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+	var resData map[string][]terraModel.Template
+	// Check the response body is what we expect.
+	errData := json.NewDecoder(rr.Body).Decode(&resData)
+	if errData != nil {
+		t.Errorf("Invalid response %+v", errData)
+	}
+	return resData["templates"], nil
 }
 
 func _createApp(t *testing.T, ns NSData, app terraModel.Application) (string, error) {
@@ -553,6 +618,236 @@ func _fetchApp(t *testing.T, ns NSData, app terraModel.Application) (terraModel.
 	return resData["app"], nil
 }
 
+func _fetchApps(t *testing.T, ns NSData, public bool) ([]terraModel.Application, error) {
+	var req *http.Request
+	var err error
+	if public {
+		req, err = http.NewRequest("GET", fmt.Sprintf("/deploy/apps"), nil)
+	} else {
+		req, err = http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/app", ns.ID.Hex()), nil)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusOK {
+		return nil, fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+	var resData map[string][]terraModel.Application
+	// Check the response body is what we expect.
+	errData := json.NewDecoder(rr.Body).Decode(&resData)
+	if errData != nil {
+		t.Errorf("Invalid response %+v", errData)
+	}
+	return resData["apps"], nil
+}
+
+func _createEndpoint(t *testing.T, ns NSData, endpoint terraModel.EndPoint) (string, error) {
+	jsonData, _ := json.Marshal(endpoint)
+	req, err := http.NewRequest("POST", fmt.Sprintf("/deploy/ns/%s/endpoint", ns.ID.Hex()), bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusCreated {
+		return "", fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusCreated)
+	}
+
+	// Check the response body is what we expect.
+	var resData map[string]string
+	errData := json.NewDecoder(rr.Body).Decode(&resData)
+	if errData != nil {
+		t.Errorf("Invalid response %+v", errData)
+	}
+	return resData["endpoint"], nil
+}
+
+func _updateEndpoint(t *testing.T, ns NSData, endpoint terraModel.EndPoint) (terraModel.EndPoint, error) {
+	var data terraModel.EndPoint
+	jsonData, _ := json.Marshal(endpoint)
+	req, err := http.NewRequest("PUT", fmt.Sprintf("/deploy/ns/%s/endpoint/%s", ns.ID.Hex(), endpoint.ID.Hex()), bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusOK {
+		return data, fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+
+	// Check the response body is what we expect.
+	var resData map[string]terraModel.EndPoint
+	errData := json.NewDecoder(rr.Body).Decode(&resData)
+	if errData != nil {
+		t.Errorf("Invalid response %+v", errData)
+	}
+	return resData["endpoint"], nil
+}
+
+func _deleteEndpoint(t *testing.T, ns NSData, endpoint terraModel.EndPoint) error {
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("/deploy/ns/%s/endpoint/%s", ns.ID.Hex(), endpoint.ID.Hex()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusOK {
+		return fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+
+	return nil
+}
+
+func _fetchEndpoint(t *testing.T, ns NSData, endpoint terraModel.EndPoint) (terraModel.EndPoint, error) {
+	var data terraModel.EndPoint
+	req, err := http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/endpoint/%s", ns.ID.Hex(), endpoint.ID.Hex()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusOK {
+		return data, fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+	var resData map[string]terraModel.EndPoint
+	// Check the response body is what we expect.
+	errData := json.NewDecoder(rr.Body).Decode(&resData)
+	if errData != nil {
+		t.Errorf("Invalid response %+v", errData)
+	}
+	return resData["endpoint"], nil
+}
+
+func _fetchEndpointSecret(t *testing.T, ns NSData, endpoint terraModel.EndPoint) error {
+	req, err := http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/endpoint/%s/secret", ns.ID.Hex(), endpoint.ID.Hex()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusOK {
+		return fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+	return nil
+}
+
+func _createEndpointSecret(t *testing.T, ns NSData, endpoint terraModel.EndPoint, secret EndPointSecret) error {
+	jsonData, _ := json.Marshal(secret)
+	req, err := http.NewRequest("PUT", fmt.Sprintf("/deploy/ns/%s/endpoint/%s/secret", ns.ID.Hex(), endpoint.ID.Hex()), bytes.NewBuffer(jsonData))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusOK {
+		return fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+	return nil
+}
+
+func _deleteEndpointSecret(t *testing.T, ns NSData, endpoint terraModel.EndPoint) error {
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("/deploy/ns/%s/endpoint/%s/secret", ns.ID.Hex(), endpoint.ID.Hex()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusOK {
+		return fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+	return nil
+}
+
+func _fetchEndpoints(t *testing.T, ns NSData, public bool) ([]terraModel.EndPoint, error) {
+	var req *http.Request
+	var err error
+	if public {
+		req, err = http.NewRequest("GET", fmt.Sprintf("/deploy/endpoints"), nil)
+	} else {
+		req, err = http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/endpoint", ns.ID.Hex()), nil)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", token))
+	req.Header.Add("Content-Type", "application/json")
+
+	rr := httptest.NewRecorder()
+
+	_router().ServeHTTP(rr, req)
+
+	// Check the status code is what we expect.
+	if status := rr.Code; status != http.StatusOK {
+		return nil, fmt.Errorf("handler returned wrong status code: got %v want %v",
+			status, http.StatusOK)
+	}
+	var resData map[string][]terraModel.EndPoint
+	// Check the response body is what we expect.
+	errData := json.NewDecoder(rr.Body).Decode(&resData)
+	if errData != nil {
+		t.Errorf("Invalid response %+v", errData)
+	}
+	return resData["endpoints"], nil
+}
+
 func TestNamespace(t *testing.T) {
 	req, err := http.NewRequest("GET", "/deploy/ns", nil)
 	if err != nil {
@@ -645,6 +940,15 @@ func TestRecipe(t *testing.T) {
 	assert.True(t, recipeErr == nil, recipeErr)
 	assert.True(t, recipeData.Name == "recipe1" && recipeData.Public == true)
 
+	// Get all recipes
+	recipes, recipesErr := _fetchRecipes(t, nsData, false)
+	assert.True(t, recipesErr == nil, recipesErr)
+	assert.True(t, len(recipes) > 0)
+
+	recipes, recipesErr = _fetchRecipes(t, nsData, true)
+	assert.True(t, recipesErr == nil, recipesErr)
+	assert.True(t, len(recipes) > 0)
+
 	// Delete
 	recipeErr = _deleteRecipe(t, nsData, recipe)
 	assert.True(t, recipeErr == nil, recipeErr)
@@ -686,6 +990,15 @@ func TestTemplate(t *testing.T) {
 	templateData, templateErr = _fetchTemplate(t, nsData, template)
 	assert.True(t, templateErr == nil, templateErr)
 	assert.True(t, templateData.Name == "tpl1" && templateData.Public == true)
+
+	// Get all templates
+	templates, templatesErr := _fetchTemplates(t, nsData, false)
+	assert.True(t, templatesErr == nil, templatesErr)
+	assert.True(t, len(templates) > 0)
+
+	templates, templatesErr = _fetchTemplates(t, nsData, true)
+	assert.True(t, templatesErr == nil, templatesErr)
+	assert.True(t, len(templates) > 0)
 
 	// Delete
 	templateErr = _deleteTemplate(t, nsData, template)
@@ -751,6 +1064,16 @@ func TestApp(t *testing.T) {
 	assert.True(t, appErr == nil, appErr)
 	assert.True(t, appData.Name == app.Name && appData.Public == true)
 
+	// Get all templates
+	apps, appsErr := _fetchApps(t, nsData, false)
+	assert.True(t, appsErr == nil, appsErr)
+	assert.True(t, len(apps) > 0)
+
+	// Get all public templates
+	apps, appsErr = _fetchApps(t, nsData, true)
+	assert.True(t, appsErr == nil, appsErr)
+	assert.True(t, len(apps) > 0)
+
 	// Try to delete recipe used by app
 	recipeErr = _deleteRecipe(t, nsData, recipe)
 	assert.True(t, recipeErr != nil, recipeErr)
@@ -765,4 +1088,68 @@ func TestApp(t *testing.T) {
 
 	_, appErr = _fetchApp(t, nsData, app)
 	assert.True(t, appErr != nil, appErr)
+}
+
+func TestEndpoint(t *testing.T) {
+	nsID, nsErr := _createNS(t, "test0")
+	if nsErr != nil {
+		t.Fail()
+	}
+	// Get ns info
+	nsData, nsDataErr := _fetchNS(t, nsID)
+	assert.True(t, nsDataErr == nil, nsDataErr)
+
+	images := make(map[string]string)
+	images["debian"] = "000000000"
+
+	endpoint := terraModel.EndPoint{
+		Name:   "endpoint1",
+		Public: true,
+		Kind:   "test",
+		Images: images,
+	}
+	endpointID, endpointErr := _createEndpoint(t, nsData, endpoint)
+	assert.True(t, endpointErr == nil, endpointErr)
+	endpoint.ID, _ = primitive.ObjectIDFromHex(endpointID)
+
+	endpointData, endpointErr := _fetchEndpoint(t, nsData, endpoint)
+	assert.True(t, endpointErr == nil, endpointErr)
+	assert.True(t, endpointData.Name == "endpoint1" && endpointData.Public == true)
+
+	// Get all endpoints
+	endpoints, endpointsErr := _fetchEndpoints(t, nsData, false)
+	assert.True(t, endpointsErr == nil, endpointsErr)
+	assert.True(t, len(endpoints) > 0)
+
+	endpoints, endpointsErr = _fetchEndpoints(t, nsData, true)
+	assert.True(t, endpointsErr == nil, endpointsErr)
+	assert.True(t, len(endpoints) > 0)
+
+	// Check there is no secret
+	secretErr := _fetchEndpointSecret(t, nsData, endpoint)
+	assert.True(t, secretErr != nil)
+	newSecret := EndPointSecret{
+		UserName: "me",
+		Password: "test",
+	}
+	secretErr = _createEndpointSecret(t, nsData, endpoint, newSecret)
+	assert.True(t, secretErr == nil, secretErr)
+
+	secretErr = _fetchEndpointSecret(t, nsData, endpoint)
+	assert.True(t, secretErr == nil, secretErr)
+
+	secretErr = _deleteEndpointSecret(t, nsData, endpoint)
+	assert.True(t, secretErr == nil, secretErr)
+
+	secretErr = _fetchEndpointSecret(t, nsData, endpoint)
+	assert.True(t, secretErr != nil)
+
+	// Delete
+	endpointErr = _deleteEndpoint(t, nsData, endpoint)
+	assert.True(t, endpointErr == nil, endpointErr)
+
+	// Get ns info again, should not exists anymore
+	_, endpointErr = _fetchEndpoint(t, nsData, endpoint)
+	assert.True(t, endpointErr != nil, endpointErr)
+
 }
