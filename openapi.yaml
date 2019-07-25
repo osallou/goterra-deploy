@@ -1036,7 +1036,7 @@ paths:
     delete:
       security:
         - JWTToken: []
-      summary: get run status of application [member]
+      summary: request to stop run [member]
       parameters:
         - in: path
           name: id

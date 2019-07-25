@@ -903,8 +903,14 @@ func _fetchRun(t *testing.T, ns NSData, run terraModel.Run) (terraModel.Run, err
 	return resData, nil
 }
 
-func _fetchRuns(t *testing.T, ns NSData) ([]terraModel.Run, error) {
-	req, err := http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/run", ns.ID.Hex()), nil)
+func _fetchRuns(t *testing.T, ns NSData, namespaceOnly bool) ([]terraModel.Run, error) {
+	var req *http.Request
+	var err error
+	if namespaceOnly {
+		req, err = http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/run", ns.ID.Hex()), nil)
+	} else {
+		req, err = http.NewRequest("GET", fmt.Sprintf("/deploy/run"), nil)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -930,7 +936,9 @@ func _fetchRuns(t *testing.T, ns NSData) ([]terraModel.Run, error) {
 }
 
 func _deleteRun(t *testing.T, ns NSData, run terraModel.Run) error {
-	req, err := http.NewRequest("DELETE", fmt.Sprintf("/deploy/ns/%s/run/%s", ns.ID.Hex(), run.ID.Hex()), nil)
+	jsonData, _ := json.Marshal(run)
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("/deploy/ns/%s/run/%s", ns.ID.Hex(), run.ID.Hex()), bytes.NewBuffer(jsonData))
+	//req, err := http.NewRequest("DELETE", fmt.Sprintf("/deploy/ns/%s/run/%s", ns.ID.Hex(), run.ID.Hex()), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1340,8 +1348,29 @@ func TestRun(t *testing.T) {
 	assert.True(t, pendingRunErr == nil, pendingRunErr)
 	assert.True(t, pendingRun.Status == "deploy_pending")
 
-	pendingRuns, pendingRunsErr := _fetchRuns(t, nsData)
+	// Jobs in namespace
+	pendingRuns, pendingRunsErr := _fetchRuns(t, nsData, false)
 	assert.True(t, pendingRunsErr == nil, pendingRunsErr)
 	assert.True(t, len(pendingRuns) > 0)
+
+	// User jobs
+	pendingRuns, pendingRunsErr = _fetchRuns(t, nsData, true)
+	assert.True(t, pendingRunsErr == nil, pendingRunsErr)
+	assert.True(t, len(pendingRuns) > 0)
+
+	deleteErr := _deleteRun(t, nsData, run)
+	assert.True(t, deleteErr == nil, deleteErr)
+
+	pendingRuns, pendingRunsErr = _fetchRuns(t, nsData, true)
+	assert.True(t, pendingRunsErr == nil, pendingRunsErr)
+	assert.True(t, len(pendingRuns) > 0)
+	var status = ""
+	for _, pendingRun := range pendingRuns {
+		if pendingRun.ID == run.ID {
+			status = pendingRun.Status
+			break
+		}
+	}
+	assert.True(t, status == "destroy_pending")
 
 }

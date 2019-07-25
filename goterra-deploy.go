@@ -2928,15 +2928,29 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	run := terraModel.Run{}
-	err = json.NewDecoder(r.Body).Decode(&run)
-	if err != nil {
-		log.Debug().Str("uid", claims.UID).Str("ns", nsID).Msg("Delete with no content, this is allowed....")
-		//w.Header().Add("Content-Type", "application/json")
-		//w.WriteHeader(http.StatusInternalServerError)
-		//respError := map[string]interface{}{"message": "failed to decode message"}
-		//json.NewEncoder(w).Encode(respError)
-		//return
+	// err = json.NewDecoder(r.Body).Decode(&run)
+
+	if r.Body != nil {
+		b, err := ioutil.ReadAll(r.Body)
+		defer r.Body.Close()
+		if err == nil && len(b) > 0 {
+			jsonErr := json.Unmarshal(b, &run)
+			if jsonErr != nil {
+				w.Header().Add("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				respError := map[string]interface{}{"message": "failed to decode message"}
+				json.NewEncoder(w).Encode(respError)
+				return
+			}
+		} else {
+			log.Debug().Str("uid", claims.UID).Str("ns", nsID).Msg("Delete with no content, this is allowed....")
+		}
 	}
+
+	/*
+		if err != nil {
+			log.Debug().Str("uid", claims.UID).Str("ns", nsID).Msg("Delete with no content, this is allowed....")
+		}*/
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -2984,8 +2998,10 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 			log.Debug().Str("uid", claims.UID).Str("ns", nsID).Msg("Using user secret for endpoint")
 			decodedPassword, decodedErr := decryptData(secretEndpoint.Password)
 			if decodedErr == nil {
-				log.Printf("[ERROR] Failed to decode user %s password for endpoint %s", claims.UID, rundb.Endpoint)
 				sensitiveInputs["password"] = decodedPassword
+			} else {
+				log.Printf("[ERROR] Failed to decode user %s password for endpoint %s", claims.UID, rundb.Endpoint)
+				sensitiveInputs["password"] = ""
 			}
 		} else {
 			log.Debug().Str("uid", claims.UID).Str("ns", nsID).Msg("password provided in run, skipping secret checks")
