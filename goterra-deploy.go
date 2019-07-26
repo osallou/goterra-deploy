@@ -2042,7 +2042,7 @@ func decryptData(cryptedData string) (string, error) {
 // GetNSEndpointSecretHandler checks if user has a secret for this endpoint
 var GetNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	nsID := vars["id"]
+	// nsID := vars["id"]
 	endpointID := vars["endpoint"]
 	claims, err := CheckToken(r.Header.Get("Authorization"))
 	if err != nil {
@@ -2056,9 +2056,8 @@ var GetNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	ns := bson.M{
-		"uid":       claims.UID,
-		"endpoint":  endpointID,
-		"namespace": nsID,
+		"uid":      claims.UID,
+		"endpoint": endpointID,
 	}
 
 	eps := EndPointSecret{}
@@ -2072,14 +2071,14 @@ var GetNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request) {
 
 	}
 	w.Header().Add("Content-Type", "application/json")
-	respError := map[string]interface{}{"message": "secret found"}
+	respError := map[string]interface{}{"message": "secret found", "uid": eps.UserName}
 	json.NewEncoder(w).Encode(respError)
 }
 
 // DeleteNSEndpointSecretHandler remove user secret for endpoint
 var DeleteNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
-	nsID := vars["id"]
+	// nsID := vars["id"]
 	endpointID := vars["endpoint"]
 	claims, err := CheckToken(r.Header.Get("Authorization"))
 	if err != nil {
@@ -2093,9 +2092,8 @@ var DeleteNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	ns := bson.M{
-		"uid":       claims.UID,
-		"endpoint":  endpointID,
-		"namespace": nsID,
+		"uid":      claims.UID,
+		"endpoint": endpointID,
 	}
 
 	_, errDel := endpointSecretCollection.DeleteOne(ctx, ns)
@@ -2126,6 +2124,23 @@ var CreateNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var endpointdb terraModel.EndPoint
+	objID, _ := primitive.ObjectIDFromHex(endpointID)
+	nsFilter := bson.M{
+		"_id": objID,
+	}
+	err = endpointCollection.FindOne(ctx, nsFilter).Decode(&endpointdb)
+
+	if !claims.Admin && !IsMemberOfNS(nsCollection, endpointdb.Namespace, claims.UID) && !endpointdb.Public {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		respError := map[string]interface{}{"message": "not a member of namespace"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
 	data := &EndPointSecret{}
 	err = json.NewDecoder(r.Body).Decode(data)
 	if err != nil {
@@ -2136,12 +2151,10 @@ var CreateNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
 	ns := bson.M{
 		"uid":       claims.UID,
 		"endpoint":  endpointID,
-		"namespace": nsID,
+		"namespace": endpointdb.Namespace,
 	}
 
 	cryptedPwd, cryptErr := cryptData(data.Password)
@@ -2153,8 +2166,8 @@ var CreateNSEndpointSecretHandler = func(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	var endpointdb EndPointSecret
-	err = endpointSecretCollection.FindOne(ctx, ns).Decode(&endpointdb)
+	var endpointSecretdb EndPointSecret
+	err = endpointSecretCollection.FindOne(ctx, ns).Decode(&endpointSecretdb)
 	if err == mongo.ErrNoDocuments {
 		// create
 		secret := &EndPointSecret{
@@ -2936,6 +2949,7 @@ var DeleteRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		if err == nil && len(b) > 0 {
 			jsonErr := json.Unmarshal(b, &run)
 			if jsonErr != nil {
+				log.Error().Str("run", vars["run"]).Msgf("delete decode error: %s", jsonErr)
 				w.Header().Add("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)
 				respError := map[string]interface{}{"message": "failed to decode message"}
