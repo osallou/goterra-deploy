@@ -1974,7 +1974,6 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 // EndPointSecret is a structure to save in db a user/password (encrypted)
 type EndPointSecret struct {
 	UID       string `json:"uid"`
-	UserID    string `json:"user_id"`
 	UserName  string `json:"name"`
 	Password  string `json:"password"`
 	EndPoint  string `json:"endpoint"`
