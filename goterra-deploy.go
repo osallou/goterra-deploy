@@ -300,6 +300,8 @@ var CreateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	nsCreatedMessage(claims.UID, newns.InsertedID.(primitive.ObjectID).Hex())
+
 	resp := map[string]interface{}{"ns": newns.InsertedID}
 	w.Header().Add("Content-Type", "application/json")
 	remote := []string{config.URL, "deploy", "ns", newns.InsertedID.(primitive.ObjectID).Hex()}
@@ -480,6 +482,8 @@ var UpdateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(respError)
 		return
 	}
+
+	nsUpdatedMessage(claims.UID, nsID)
 
 	resp := map[string]interface{}{"ns": nsID}
 	w.Header().Add("Content-Type", "application/json")
