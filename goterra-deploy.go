@@ -48,6 +48,7 @@ var endpointCollection *mongo.Collection
 var endpointSecretCollection *mongo.Collection
 var runCollection *mongo.Collection
 var templateCollection *mongo.Collection
+var endpointDefaultsCollection *mongo.Collection
 
 // HomeHandler manages base entrypoint
 var HomeHandler = func(w http.ResponseWriter, r *http.Request) {
@@ -1871,6 +1872,56 @@ func getRecipeInputs(recipe string, ns string) (map[string]string, map[string][]
 
 }
 
+func getEndpointDefaults(uid string, ns string, endpoint string) (map[string][]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	filter := bson.M{
+		"uid":       uid,
+		"endpoint":  endpoint,
+		"namespace": ns,
+	}
+
+	var edefaultsdb terraModel.EndpointDefaults
+	err := endpointDefaultsCollection.FindOne(ctx, filter).Decode(&edefaultsdb)
+	if err == nil && edefaultsdb.Defaults != nil {
+		return edefaultsdb.Defaults, nil
+	}
+	return nil, err
+}
+
+// GetEndpointDefaultsHandler returns defaults of a user/namespace/endpoint combination
+var GetEndpointDefaultsHandler = func(w http.ResponseWriter, r *http.Request) {
+	claims, claimserr := CheckToken(r.Header.Get("Authorization"))
+	if claimserr != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "invalid token"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	vars := mux.Vars(r)
+	nsID := vars["id"]
+	endpointID := vars["endpoint"]
+	if !claims.Admin && !IsMemberOfNS(nsCollection, nsID, claims.UID) {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "not a namespace member"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	defaults, err := getEndpointDefaults(claims.UID, nsID, endpointID)
+	if err != nil {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		respError := map[string]interface{}{"message": "no defaults found"}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+	resp := map[string]interface{}{"defaults": defaults}
+	json.NewEncoder(w).Encode(resp)
+	return
+}
+
 //GetNSAppInputsHandler gets application expected inputs for a run
 var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
@@ -1946,11 +1997,8 @@ var GetNSAppInputsHandler = func(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get endpoints
-	epns := bson.M{
-		"namespace": nsID,
-	}
 
-	epns = bson.M{
+	epns := bson.M{
 		"$or": []interface{}{
 			bson.M{"namespace": nsID},
 			bson.M{"public": true},
@@ -3092,6 +3140,7 @@ func setRoutes(r *mux.Router) {
 	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", CreateNSEndpointSecretHandler).Methods("PUT")    // create/update user secret for this endpoint
 	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", DeleteNSEndpointSecretHandler).Methods("DELETE") // delete user secret for this endpoint
 	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/secret", GetNSEndpointSecretHandler).Methods("GET")       // checks if user has a secret for this endpoint
+	r.HandleFunc("/deploy/ns/{id}/endpoint/{endpoint}/defaults", GetEndpointDefaultsHandler).Methods("GET")     // checks if user has a secret for this endpoint
 
 	r.HandleFunc("/deploy/run", GetRunsHandler).Methods("GET")                  // Get all user runs
 	r.HandleFunc("/deploy/recipes", GetPublicRecipesHandler).Methods("GET")     // Get public recipes
@@ -3143,6 +3192,7 @@ func main() {
 	endpointSecretCollection = mongoClient.Database(config.Mongo.DB).Collection("endpointsecrets")
 	runCollection = mongoClient.Database(config.Mongo.DB).Collection("run")
 	templateCollection = mongoClient.Database(config.Mongo.DB).Collection("template")
+	endpointDefaultsCollection = mongoClient.Database(config.Mongo.DB).Collection("user_ep_defaults")
 
 	r := mux.NewRouter()
 	setRoutes(r)
