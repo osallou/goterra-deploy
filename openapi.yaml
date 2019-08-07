@@ -792,6 +792,7 @@ paths:
           description: invalid token
         '404':
           description: not found
+  
   /deploy/ns/{id}/app/{application}:
     get:
       security:
@@ -1206,6 +1207,40 @@ paths:
           description: invalid token
         '404':
           description: endpoint id not found
+  /deploy/ns/{id}/endpoint/{endpoint}/defaults:
+    get:
+      security:
+        - JWTToken: []
+      summary: get user endpoint defaults for endpoint/ns [member]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+          description: id of the namespace
+        - in: path
+          name: endpoint
+          required: true
+          schema:
+            type: string
+          description: id of the endpoint
+      responses:
+        '200':
+          description: defaults
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  defaults:
+                    type: object
+                    additionalProperties:
+                      type: string
+        '403':
+          description: invalid token
+        '404':
+          description: no defaults found
   /deploy/ns/{id}/endpoint/{endpoint}/secret:
     get:
       security:
