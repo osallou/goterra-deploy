@@ -83,7 +83,7 @@ func setup() {
 	endpointSecretCollection = mongoClient.Database(config.Mongo.DB).Collection("endpointsecrets")
 	runCollection = mongoClient.Database(config.Mongo.DB).Collection("run")
 	templateCollection = mongoClient.Database(config.Mongo.DB).Collection("template")
-
+	endpointDefaultsCollection = mongoClient.Database(config.Mongo.DB).Collection("user_ep_defaults")
 }
 
 func _router() *mux.Router {

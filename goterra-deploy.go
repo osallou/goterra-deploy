@@ -406,6 +406,30 @@ var DeleteNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// For each owner/member, delete endpoint defaults for this ns
+	for _, user := range nsdb.Owners {
+		filter := bson.M{
+			"uid":       user,
+			"namespace": nsdb.ID.Hex(),
+		}
+
+		_, err := endpointDefaultsCollection.DeleteMany(ctx, filter)
+		if err != nil {
+			log.Warn().Str("ns", nsdb.ID.Hex()).Str("uid", user).Msg("Failed to delete endpointDefaults")
+		}
+	}
+	for _, user := range nsdb.Members {
+		filter := bson.M{
+			"uid":       user,
+			"namespace": nsdb.ID.Hex(),
+		}
+
+		_, err := endpointDefaultsCollection.DeleteMany(ctx, filter)
+		if err != nil {
+			log.Warn().Str("ns", nsdb.ID.Hex()).Str("uid", user).Msg("Failed to delete endpointDefaults")
+		}
+	}
+
 	resp := map[string]interface{}{"ns": nsID}
 	w.Header().Add("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)
