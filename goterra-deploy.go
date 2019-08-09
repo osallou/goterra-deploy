@@ -430,6 +430,8 @@ var DeleteNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	nsDeletedMessage(claims.UID, nsID)
+
 	resp := map[string]interface{}{"ns": nsID}
 	w.Header().Add("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(resp)

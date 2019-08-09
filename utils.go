@@ -245,6 +245,61 @@ func nsUpdatedMessage(uid string, ns string) error {
 	return nil
 }
 
+//nsDeletedMessage sends a message to rabbitmq exchange
+func nsDeletedMessage(uid string, ns string) error {
+	if os.Getenv("GOT_MOCK_AMQP") == "1" {
+		return nil
+	}
+	config := terraConfig.LoadConfig()
+	if config.Amqp == "" {
+		fmt.Printf("[ERROR] no amqp defined\n")
+		return fmt.Errorf("No AMQP config found")
+	}
+	conn, err := amqp.Dial(config.Amqp)
+	if err != nil {
+		log.Error().Msgf("[ERROR] failed to send message for user %s: %s\n", uid, err)
+		return err
+	}
+	defer conn.Close()
+
+	ch, err := conn.Channel()
+	if err != nil {
+		log.Error().Msgf("[ERROR] failed to connect to amqp\n")
+		return err
+	}
+
+	err = ch.ExchangeDeclare(
+		"gotevent", // name
+		"fanout",   // type
+		true,       // durable
+		false,      // auto-deleted
+		false,      // internal
+		false,      // no-wait
+		nil,        // arguments
+	)
+	if err != nil {
+		log.Error().Msgf("[ERROR] failed to connect to open exchange\n")
+		return err
+	}
+
+	msg := &terraModel.UserAction{Action: "ns_delete", UID: uid, Data: ns}
+	body, _ := json.Marshal(msg)
+	err = ch.Publish(
+		"gotevent", // exchange
+		"",         // routing key
+		false,      // mandatory
+		false,      // immediate
+		amqp.Publishing{
+			ContentType: "text/plain",
+			Body:        []byte(body),
+		})
+	if err != nil {
+		log.Error().Msgf("[ERROR] failed to send message\n")
+		return err
+	}
+	return nil
+}
+
 // ModelsToTemplates analyse user defined model and creates some terraform templates
 // Only openstack for the moment
 func ModelsToTemplates(models []terraModel.Model) map[string]string {
