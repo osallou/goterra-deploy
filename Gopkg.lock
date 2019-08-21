@@ -123,7 +123,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:b0dc07cead6e051915e5adbd1a81f4365e540c32f6c8bbd73840a58e39d87ad9"
+  digest = "1:ae9a1d6841807d463f2cc00fce2d8ee5d707483d5b8b7bb02e21ac8f113e3c41"
   name = "github.com/osallou/goterra-lib"
   packages = [
     "lib/config",
@@ -132,7 +132,7 @@
     "lib/user",
   ]
   pruneopts = "UT"
-  revision = "c1c266d2a1f1b20e1d3a27b62c6f9207fd693fab"
+  revision = "1cd0790fa90e1bf40a2b01a2cefdea3a4519a11c"
 
 [[projects]]
   digest = "1:0028cb19b2e4c3112225cd871870f2d9cf49b9b4276531f03438a88e94be86fe"
@@ -143,15 +143,15 @@
   version = "v1.0.0"
 
 [[projects]]
-  digest = "1:b0c25f00bad20d783d259af2af8666969e2fc343fa0dc9efe52936bbd67fb758"
+  digest = "1:c5dfe46811af7e2eff7c11fc84b6c841520338613c056f659f262d5a4fb42fa8"
   name = "github.com/rs/cors"
   packages = ["."]
   pruneopts = "UT"
-  revision = "9a47f48565a795472d43519dd49aac781f3034fb"
-  version = "v1.6.0"
+  revision = "db0fe48135e83b5812a5a31be0eea66984b1b521"
+  version = "v1.7.0"
 
 [[projects]]
-  digest = "1:fb63fb6cb9cf7310c6bd83998cc430ee5af1ec52612572ecb42c7aad74bd3598"
+  digest = "1:6cf4e9f5ea82d48699eed7a836781037621227fb8551d7571b82aabde422fec1"
   name = "github.com/rs/zerolog"
   packages = [
     ".",
@@ -160,24 +160,24 @@
     "log",
   ]
   pruneopts = "UT"
-  revision = "acf3980132bfcdc48638724e6e3d9e5749b85999"
-  version = "v1.14.3"
+  revision = "b806a5ecbe5347ad9ef05121fea8f4acc65fa5fc"
+  version = "v1.15.0"
 
 [[projects]]
   branch = "master"
-  digest = "1:d6bb6f3240a488ffe5bb6952b513569d009927dcb20ff94885f87b76cef2b698"
+  digest = "1:523f246a749e007dff099d654ec713cf94cd0f441bce9072ceaa1af62722d225"
   name = "github.com/streadway/amqp"
   packages = ["."]
   pruneopts = "UT"
-  revision = "75d898a42a940fbc854dfd1a4199eabdc00cf024"
+  revision = "eade30b20f1d77d4ab7a3c72d5e3a3331b6443ba"
 
 [[projects]]
-  digest = "1:972c2427413d41a1e06ca4897e8528e5a1622894050e2f527b38ddf0f343f759"
+  digest = "1:8548c309c65a85933a625be5e7d52b6ac927ca30c56869fae58123b8a77a75e1"
   name = "github.com/stretchr/testify"
   packages = ["assert"]
   pruneopts = "UT"
-  revision = "ffdc059bfe9ce6a4e144ba849dbedead332c6053"
-  version = "v1.3.0"
+  revision = "221dbe5ed46703ee255b1da0dec05086f5035f62"
+  version = "v1.4.0"
 
 [[projects]]
   branch = "master"
@@ -196,7 +196,7 @@
   revision = "73f8eece6fdcd902c185bf651de50f3828bed5ed"
 
 [[projects]]
-  digest = "1:721dfafdcdef689834240d27526505237b230b7dea54df28ec299ab182cfbd1f"
+  digest = "1:c540afe732e96088051488bc827eadfba64b90a0e803ea61e7ec80907887362e"
   name = "go.mongodb.org/mongo-driver"
   packages = [
     "bson",
@@ -216,23 +216,21 @@
     "x/bsonx",
     "x/bsonx/bsoncore",
     "x/mongo/driver",
+    "x/mongo/driver/address",
     "x/mongo/driver/auth",
     "x/mongo/driver/auth/internal/gssapi",
+    "x/mongo/driver/connstring",
+    "x/mongo/driver/description",
+    "x/mongo/driver/dns",
+    "x/mongo/driver/operation",
     "x/mongo/driver/session",
     "x/mongo/driver/topology",
     "x/mongo/driver/uuid",
-    "x/network/address",
-    "x/network/command",
-    "x/network/compressor",
-    "x/network/connection",
-    "x/network/connstring",
-    "x/network/description",
-    "x/network/result",
-    "x/network/wiremessage",
+    "x/mongo/driver/wiremessage",
   ]
   pruneopts = "UT"
-  revision = "0d1270edf53072da4da781b76d2e1db58831152f"
-  version = "v1.0.4"
+  revision = "d42ea7239f0db8a61e77191b9f2730a922459042"
+  version = "v1.1.0"
 
 [[projects]]
   branch = "master"
@@ -240,7 +238,7 @@
   name = "golang.org/x/crypto"
   packages = ["pbkdf2"]
   pruneopts = "UT"
-  revision = "4def268fd1a49955bfb3dda92fe3db4f924f2285"
+  revision = "60c769a6c58655dab1b9adac0d58967dd517cfba"
 
 [[projects]]
   branch = "master"

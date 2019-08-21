@@ -261,7 +261,7 @@ var CreateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	data := &NSData{}
+	data := &terraModel.NSData{}
 	err = json.NewDecoder(r.Body).Decode(data)
 	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
@@ -276,7 +276,7 @@ var CreateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 	ns := bson.M{
 		"name": data.Name,
 	}
-	var nsdb NSData
+	var nsdb terraModel.NSData
 	err = nsCollection.FindOne(ctx, ns).Decode(&nsdb)
 	if err != mongo.ErrNoDocuments {
 		// already exists
@@ -332,7 +332,7 @@ var DeleteNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		"_id": objID,
 	}
 
-	var nsdb NSData
+	var nsdb terraModel.NSData
 	err = nsCollection.FindOne(ctx, ns).Decode(&nsdb)
 	if err == mongo.ErrNoDocuments {
 		w.Header().Add("Content-Type", "application/json")
@@ -451,7 +451,7 @@ var UpdateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	nsID := vars["id"]
 
-	data := &NSData{}
+	data := &terraModel.NSData{}
 	err = json.NewDecoder(r.Body).Decode(data)
 	if err != nil {
 		w.Header().Add("Content-Type", "application/json")
@@ -468,7 +468,7 @@ var UpdateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		"_id": objID,
 	}
 
-	var nsdb NSData
+	var nsdb terraModel.NSData
 	err = nsCollection.FindOne(ctx, ns).Decode(&nsdb)
 	if err == mongo.ErrNoDocuments {
 		w.Header().Add("Content-Type", "application/json")
@@ -498,6 +498,7 @@ var UpdateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		"name":    data.Name,
 		"owners":  data.Owners,
 		"members": data.Members,
+		"freeze":  data.Freeze,
 	}
 
 	err = nsCollection.FindOneAndReplace(ctx, ns, newns).Decode(&nsdb)
@@ -538,7 +539,7 @@ var GetNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		"_id": objID,
 	}
 
-	var nsdb NSData
+	var nsdb terraModel.NSData
 	err = nsCollection.FindOne(ctx, ns).Decode(&nsdb)
 	if err == mongo.ErrNoDocuments {
 		w.Header().Add("Content-Type", "application/json")
@@ -604,10 +605,10 @@ var GetNSALLHandler = func(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	namespaces := make([]NSData, 0)
+	namespaces := make([]terraModel.NSData, 0)
 	nscursor, _ := nsCollection.Find(ctx, ns)
 	for nscursor.Next(ctx) {
-		var nsdb NSData
+		var nsdb terraModel.NSData
 		nscursor.Decode(&nsdb)
 		namespaces = append(namespaces, nsdb)
 	}
@@ -2714,6 +2715,15 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		respError := map[string]interface{}{"message": errTf.Error()}
+		json.NewEncoder(w).Encode(respError)
+		return
+	}
+
+	requestedNS := GetNS(nsCollection, nsID)
+	if requestedNS.Freeze {
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		respError := map[string]interface{}{"message": "namespace is frozen, deployment forbiden"}
 		json.NewEncoder(w).Encode(respError)
 		return
 	}

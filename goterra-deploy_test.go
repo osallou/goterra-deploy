@@ -159,7 +159,7 @@ func _createNS(t *testing.T, name string) (string, error) {
 	return resData["ns"], nil
 }
 
-func _updateNS(t *testing.T, ns NSData) (string, error) {
+func _updateNS(t *testing.T, ns terraModel.NSData) (string, error) {
 
 	jsonData, _ := json.Marshal(ns)
 	req, err := http.NewRequest("PUT", fmt.Sprintf("/deploy/ns/%s", ns.ID.Hex()), bytes.NewBuffer(jsonData))
@@ -209,8 +209,8 @@ func _deleteNS(t *testing.T, id string) error {
 	return nil
 }
 
-func _fetchNS(t *testing.T, id string) (NSData, error) {
-	var data NSData
+func _fetchNS(t *testing.T, id string) (terraModel.NSData, error) {
+	var data terraModel.NSData
 	req, err := http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s", id), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -227,7 +227,7 @@ func _fetchNS(t *testing.T, id string) (NSData, error) {
 		return data, fmt.Errorf("handler returned wrong status code: got %v want %v",
 			status, http.StatusOK)
 	}
-	var resData map[string]NSData
+	var resData map[string]terraModel.NSData
 	// Check the response body is what we expect.
 	errData := json.NewDecoder(rr.Body).Decode(&resData)
 	if errData != nil {
@@ -236,7 +236,7 @@ func _fetchNS(t *testing.T, id string) (NSData, error) {
 	return resData["ns"], nil
 }
 
-func _createRecipe(t *testing.T, ns NSData, recipe terraModel.Recipe) (string, error) {
+func _createRecipe(t *testing.T, ns terraModel.NSData, recipe terraModel.Recipe) (string, error) {
 	jsonData, _ := json.Marshal(recipe)
 	req, err := http.NewRequest("POST", fmt.Sprintf("/deploy/ns/%s/recipe", ns.ID.Hex()), bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -264,7 +264,7 @@ func _createRecipe(t *testing.T, ns NSData, recipe terraModel.Recipe) (string, e
 	return resData["recipe"], nil
 }
 
-func _updateRecipe(t *testing.T, ns NSData, recipe terraModel.Recipe) (terraModel.Recipe, error) {
+func _updateRecipe(t *testing.T, ns terraModel.NSData, recipe terraModel.Recipe) (terraModel.Recipe, error) {
 	var data terraModel.Recipe
 	jsonData, _ := json.Marshal(recipe)
 	req, err := http.NewRequest("PUT", fmt.Sprintf("/deploy/ns/%s/recipe/%s", ns.ID.Hex(), recipe.ID.Hex()), bytes.NewBuffer(jsonData))
@@ -293,7 +293,7 @@ func _updateRecipe(t *testing.T, ns NSData, recipe terraModel.Recipe) (terraMode
 	return resData["recipe"], nil
 }
 
-func _deleteRecipe(t *testing.T, ns NSData, recipe terraModel.Recipe) error {
+func _deleteRecipe(t *testing.T, ns terraModel.NSData, recipe terraModel.Recipe) error {
 	req, err := http.NewRequest("DELETE", fmt.Sprintf("/deploy/ns/%s/recipe/%s", ns.ID.Hex(), recipe.ID.Hex()), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -314,7 +314,7 @@ func _deleteRecipe(t *testing.T, ns NSData, recipe terraModel.Recipe) error {
 	return nil
 }
 
-func _fetchRecipe(t *testing.T, ns NSData, recipe terraModel.Recipe) (terraModel.Recipe, error) {
+func _fetchRecipe(t *testing.T, ns terraModel.NSData, recipe terraModel.Recipe) (terraModel.Recipe, error) {
 	var data terraModel.Recipe
 	req, err := http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/recipe/%s", ns.ID.Hex(), recipe.ID.Hex()), nil)
 	if err != nil {
@@ -341,7 +341,7 @@ func _fetchRecipe(t *testing.T, ns NSData, recipe terraModel.Recipe) (terraModel
 	return resData["recipe"], nil
 }
 
-func _fetchRecipes(t *testing.T, ns NSData, public bool) ([]terraModel.Recipe, error) {
+func _fetchRecipes(t *testing.T, ns terraModel.NSData, public bool) ([]terraModel.Recipe, error) {
 	var req *http.Request
 	var err error
 	if public {
@@ -373,7 +373,7 @@ func _fetchRecipes(t *testing.T, ns NSData, public bool) ([]terraModel.Recipe, e
 	return resData["recipes"], nil
 }
 
-func _createTemplate(t *testing.T, ns NSData, template terraModel.Template) (string, error) {
+func _createTemplate(t *testing.T, ns terraModel.NSData, template terraModel.Template) (string, error) {
 	jsonData, _ := json.Marshal(template)
 	req, err := http.NewRequest("POST", fmt.Sprintf("/deploy/ns/%s/template", ns.ID.Hex()), bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -401,7 +401,7 @@ func _createTemplate(t *testing.T, ns NSData, template terraModel.Template) (str
 	return resData["template"], nil
 }
 
-func _updateTemplate(t *testing.T, ns NSData, template terraModel.Template) (terraModel.Template, error) {
+func _updateTemplate(t *testing.T, ns terraModel.NSData, template terraModel.Template) (terraModel.Template, error) {
 	var data terraModel.Template
 
 	jsonData, _ := json.Marshal(template)
@@ -431,7 +431,7 @@ func _updateTemplate(t *testing.T, ns NSData, template terraModel.Template) (ter
 	return resData["template"], nil
 }
 
-func _deleteTemplate(t *testing.T, ns NSData, template terraModel.Template) error {
+func _deleteTemplate(t *testing.T, ns terraModel.NSData, template terraModel.Template) error {
 	req, err := http.NewRequest("DELETE", fmt.Sprintf("/deploy/ns/%s/template/%s", ns.ID.Hex(), template.ID.Hex()), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -452,7 +452,7 @@ func _deleteTemplate(t *testing.T, ns NSData, template terraModel.Template) erro
 	return nil
 }
 
-func _fetchTemplate(t *testing.T, ns NSData, template terraModel.Template) (terraModel.Template, error) {
+func _fetchTemplate(t *testing.T, ns terraModel.NSData, template terraModel.Template) (terraModel.Template, error) {
 	var data terraModel.Template
 	req, err := http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/template/%s", ns.ID.Hex(), template.ID.Hex()), nil)
 	if err != nil {
@@ -479,7 +479,7 @@ func _fetchTemplate(t *testing.T, ns NSData, template terraModel.Template) (terr
 	return resData["template"], nil
 }
 
-func _fetchTemplates(t *testing.T, ns NSData, public bool) ([]terraModel.Template, error) {
+func _fetchTemplates(t *testing.T, ns terraModel.NSData, public bool) ([]terraModel.Template, error) {
 
 	var req *http.Request
 	var err error
@@ -512,7 +512,7 @@ func _fetchTemplates(t *testing.T, ns NSData, public bool) ([]terraModel.Templat
 	return resData["templates"], nil
 }
 
-func _createApp(t *testing.T, ns NSData, app terraModel.Application) (string, error) {
+func _createApp(t *testing.T, ns terraModel.NSData, app terraModel.Application) (string, error) {
 	jsonData, _ := json.Marshal(app)
 	req, err := http.NewRequest("POST", fmt.Sprintf("/deploy/ns/%s/app", ns.ID.Hex()), bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -540,7 +540,7 @@ func _createApp(t *testing.T, ns NSData, app terraModel.Application) (string, er
 	return resData["app"], nil
 }
 
-func _updateApp(t *testing.T, ns NSData, app terraModel.Application) (terraModel.Application, error) {
+func _updateApp(t *testing.T, ns terraModel.NSData, app terraModel.Application) (terraModel.Application, error) {
 	var data terraModel.Application
 
 	jsonData, _ := json.Marshal(app)
@@ -570,7 +570,7 @@ func _updateApp(t *testing.T, ns NSData, app terraModel.Application) (terraModel
 	return resData["app"], nil
 }
 
-func _deleteApp(t *testing.T, ns NSData, app terraModel.Application) error {
+func _deleteApp(t *testing.T, ns terraModel.NSData, app terraModel.Application) error {
 	req, err := http.NewRequest("DELETE", fmt.Sprintf("/deploy/ns/%s/app/%s", ns.ID.Hex(), app.ID.Hex()), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -591,7 +591,7 @@ func _deleteApp(t *testing.T, ns NSData, app terraModel.Application) error {
 	return nil
 }
 
-func _fetchApp(t *testing.T, ns NSData, app terraModel.Application) (terraModel.Application, error) {
+func _fetchApp(t *testing.T, ns terraModel.NSData, app terraModel.Application) (terraModel.Application, error) {
 	var data terraModel.Application
 	req, err := http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/app/%s", ns.ID.Hex(), app.ID.Hex()), nil)
 	if err != nil {
@@ -618,7 +618,7 @@ func _fetchApp(t *testing.T, ns NSData, app terraModel.Application) (terraModel.
 	return resData["app"], nil
 }
 
-func _fetchApps(t *testing.T, ns NSData, public bool) ([]terraModel.Application, error) {
+func _fetchApps(t *testing.T, ns terraModel.NSData, public bool) ([]terraModel.Application, error) {
 	var req *http.Request
 	var err error
 	if public {
@@ -650,7 +650,7 @@ func _fetchApps(t *testing.T, ns NSData, public bool) ([]terraModel.Application,
 	return resData["apps"], nil
 }
 
-func _createEndpoint(t *testing.T, ns NSData, endpoint terraModel.EndPoint) (string, error) {
+func _createEndpoint(t *testing.T, ns terraModel.NSData, endpoint terraModel.EndPoint) (string, error) {
 	jsonData, _ := json.Marshal(endpoint)
 	req, err := http.NewRequest("POST", fmt.Sprintf("/deploy/ns/%s/endpoint", ns.ID.Hex()), bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -678,7 +678,7 @@ func _createEndpoint(t *testing.T, ns NSData, endpoint terraModel.EndPoint) (str
 	return resData["endpoint"], nil
 }
 
-func _updateEndpoint(t *testing.T, ns NSData, endpoint terraModel.EndPoint) (terraModel.EndPoint, error) {
+func _updateEndpoint(t *testing.T, ns terraModel.NSData, endpoint terraModel.EndPoint) (terraModel.EndPoint, error) {
 	var data terraModel.EndPoint
 	jsonData, _ := json.Marshal(endpoint)
 	req, err := http.NewRequest("PUT", fmt.Sprintf("/deploy/ns/%s/endpoint/%s", ns.ID.Hex(), endpoint.ID.Hex()), bytes.NewBuffer(jsonData))
@@ -707,7 +707,7 @@ func _updateEndpoint(t *testing.T, ns NSData, endpoint terraModel.EndPoint) (ter
 	return resData["endpoint"], nil
 }
 
-func _deleteEndpoint(t *testing.T, ns NSData, endpoint terraModel.EndPoint) error {
+func _deleteEndpoint(t *testing.T, ns terraModel.NSData, endpoint terraModel.EndPoint) error {
 	req, err := http.NewRequest("DELETE", fmt.Sprintf("/deploy/ns/%s/endpoint/%s", ns.ID.Hex(), endpoint.ID.Hex()), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -728,7 +728,7 @@ func _deleteEndpoint(t *testing.T, ns NSData, endpoint terraModel.EndPoint) erro
 	return nil
 }
 
-func _fetchEndpoint(t *testing.T, ns NSData, endpoint terraModel.EndPoint) (terraModel.EndPoint, error) {
+func _fetchEndpoint(t *testing.T, ns terraModel.NSData, endpoint terraModel.EndPoint) (terraModel.EndPoint, error) {
 	var data terraModel.EndPoint
 	req, err := http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/endpoint/%s", ns.ID.Hex(), endpoint.ID.Hex()), nil)
 	if err != nil {
@@ -755,7 +755,7 @@ func _fetchEndpoint(t *testing.T, ns NSData, endpoint terraModel.EndPoint) (terr
 	return resData["endpoint"], nil
 }
 
-func _fetchEndpointSecret(t *testing.T, ns NSData, endpoint terraModel.EndPoint) error {
+func _fetchEndpointSecret(t *testing.T, ns terraModel.NSData, endpoint terraModel.EndPoint) error {
 	req, err := http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/endpoint/%s/secret", ns.ID.Hex(), endpoint.ID.Hex()), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -775,7 +775,7 @@ func _fetchEndpointSecret(t *testing.T, ns NSData, endpoint terraModel.EndPoint)
 	return nil
 }
 
-func _createEndpointSecret(t *testing.T, ns NSData, endpoint terraModel.EndPoint, secret EndPointSecret) error {
+func _createEndpointSecret(t *testing.T, ns terraModel.NSData, endpoint terraModel.EndPoint, secret EndPointSecret) error {
 	jsonData, _ := json.Marshal(secret)
 	req, err := http.NewRequest("PUT", fmt.Sprintf("/deploy/ns/%s/endpoint/%s/secret", ns.ID.Hex(), endpoint.ID.Hex()), bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -796,7 +796,7 @@ func _createEndpointSecret(t *testing.T, ns NSData, endpoint terraModel.EndPoint
 	return nil
 }
 
-func _deleteEndpointSecret(t *testing.T, ns NSData, endpoint terraModel.EndPoint) error {
+func _deleteEndpointSecret(t *testing.T, ns terraModel.NSData, endpoint terraModel.EndPoint) error {
 	req, err := http.NewRequest("DELETE", fmt.Sprintf("/deploy/ns/%s/endpoint/%s/secret", ns.ID.Hex(), endpoint.ID.Hex()), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -816,7 +816,7 @@ func _deleteEndpointSecret(t *testing.T, ns NSData, endpoint terraModel.EndPoint
 	return nil
 }
 
-func _fetchEndpoints(t *testing.T, ns NSData, public bool) ([]terraModel.EndPoint, error) {
+func _fetchEndpoints(t *testing.T, ns terraModel.NSData, public bool) ([]terraModel.EndPoint, error) {
 	var req *http.Request
 	var err error
 	if public {
@@ -848,7 +848,7 @@ func _fetchEndpoints(t *testing.T, ns NSData, public bool) ([]terraModel.EndPoin
 	return resData["endpoints"], nil
 }
 
-func _createRun(t *testing.T, ns NSData, app terraModel.Application, run terraModel.Run) (string, error) {
+func _createRun(t *testing.T, ns terraModel.NSData, app terraModel.Application, run terraModel.Run) (string, error) {
 	jsonData, _ := json.Marshal(run)
 	req, err := http.NewRequest("POST", fmt.Sprintf("/deploy/ns/%s/run/%s", ns.ID.Hex(), app.ID.Hex()), bytes.NewBuffer(jsonData))
 	if err != nil {
@@ -876,7 +876,7 @@ func _createRun(t *testing.T, ns NSData, app terraModel.Application, run terraMo
 	return resData["run"], nil
 }
 
-func _fetchRun(t *testing.T, ns NSData, run terraModel.Run) (terraModel.Run, error) {
+func _fetchRun(t *testing.T, ns terraModel.NSData, run terraModel.Run) (terraModel.Run, error) {
 	var data terraModel.Run
 	req, err := http.NewRequest("GET", fmt.Sprintf("/deploy/ns/%s/run/%s", ns.ID.Hex(), run.ID.Hex()), nil)
 	if err != nil {
@@ -903,7 +903,7 @@ func _fetchRun(t *testing.T, ns NSData, run terraModel.Run) (terraModel.Run, err
 	return resData, nil
 }
 
-func _fetchRuns(t *testing.T, ns NSData, namespaceOnly bool) ([]terraModel.Run, error) {
+func _fetchRuns(t *testing.T, ns terraModel.NSData, namespaceOnly bool) ([]terraModel.Run, error) {
 	var req *http.Request
 	var err error
 	if namespaceOnly {
@@ -935,7 +935,7 @@ func _fetchRuns(t *testing.T, ns NSData, namespaceOnly bool) ([]terraModel.Run, 
 	return resData["runs"], nil
 }
 
-func _deleteRun(t *testing.T, ns NSData, run terraModel.Run) error {
+func _deleteRun(t *testing.T, ns terraModel.NSData, run terraModel.Run) error {
 	jsonData, _ := json.Marshal(run)
 	req, err := http.NewRequest("DELETE", fmt.Sprintf("/deploy/ns/%s/run/%s", ns.ID.Hex(), run.ID.Hex()), bytes.NewBuffer(jsonData))
 	//req, err := http.NewRequest("DELETE", fmt.Sprintf("/deploy/ns/%s/run/%s", ns.ID.Hex(), run.ID.Hex()), nil)
@@ -978,7 +978,7 @@ func TestNamespace(t *testing.T) {
 	}
 
 	// Check the response body is what we expect.
-	var resData map[string][]NSData
+	var resData map[string][]terraModel.NSData
 	errData := json.NewDecoder(rr.Body).Decode(&resData)
 	if errData != nil {
 		t.Errorf("Invalid response %+v", errData)

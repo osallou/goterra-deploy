@@ -18,15 +18,16 @@ import (
 	terraModel "github.com/osallou/goterra-lib/lib/model"
 )
 
+/*
 // NSData represent a namespace
 type NSData struct {
 	ID      primitive.ObjectID `json:"_id,omitempty" bson:"_id,omitempty"`
 	Name    string             `json:"name"`
 	Owners  []string           `json:"owners"`
 	Members []string           `json:"members"`
-}
+}*/
 
-func _getNS(coll *mongo.Collection, nsID string) (owners []string, members []string) {
+func _getNSUsers(coll *mongo.Collection, nsID string) (owners []string, members []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	objID, _ := primitive.ObjectIDFromHex(nsID)
@@ -34,7 +35,7 @@ func _getNS(coll *mongo.Collection, nsID string) (owners []string, members []str
 		"_id": objID,
 	}
 
-	var nsdb NSData
+	var nsdb terraModel.NSData
 	err := coll.FindOne(ctx, ns).Decode(&nsdb)
 	if err == mongo.ErrNoDocuments {
 		return owners, members
@@ -42,9 +43,26 @@ func _getNS(coll *mongo.Collection, nsID string) (owners []string, members []str
 	return nsdb.Owners, nsdb.Members
 }
 
+// GetNS returns namespace from db
+func GetNS(coll *mongo.Collection, nsID string) *terraModel.NSData {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	objID, _ := primitive.ObjectIDFromHex(nsID)
+	ns := bson.M{
+		"_id": objID,
+	}
+
+	var nsdb terraModel.NSData
+	err := coll.FindOne(ctx, ns).Decode(&nsdb)
+	if err == mongo.ErrNoDocuments {
+		return nil
+	}
+	return &nsdb
+}
+
 // IsOwnerOfNS checks if user is owner of namespace
 func IsOwnerOfNS(coll *mongo.Collection, ns string, uid string) bool {
-	owners, _ := _getNS(coll, ns)
+	owners, _ := _getNSUsers(coll, ns)
 	for _, owner := range owners {
 		if owner == uid {
 			return true
@@ -55,7 +73,7 @@ func IsOwnerOfNS(coll *mongo.Collection, ns string, uid string) bool {
 
 // IsMemberOfNS checks if user is owner or member of namespace
 func IsMemberOfNS(coll *mongo.Collection, ns string, uid string) bool {
-	owners, members := _getNS(coll, ns)
+	owners, members := _getNSUsers(coll, ns)
 	for _, owner := range owners {
 		if owner == uid {
 			return true
