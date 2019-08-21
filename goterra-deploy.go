@@ -493,6 +493,11 @@ var UpdateNSHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !claims.Admin && !claims.SuperUser {
+		// Only admin and superuser can freeze/unfreeze
+		data.Freeze = nsdb.Freeze
+	}
+
 	newns := bson.M{
 		"_id":     objID,
 		"name":    data.Name,
