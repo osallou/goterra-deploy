@@ -2824,6 +2824,7 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 			sshKey := getUserSSHKey(r.Header.Get("Authorization"))
 			run.Inputs["ssh_pub_key"] = sshKey
 		}
+		run.Inputs["userid"] = claims.UID
 		runInputs, runInputsErr := json.Marshal(run.Inputs)
 		if runInputsErr == nil {
 			errEnvFile := ioutil.WriteFile(runPath+"/goterra.env", runInputs, 0644)
@@ -2846,7 +2847,7 @@ var CreateRunHandler = func(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := map[string]interface{}{"run": newrun.InsertedID}
+	resp := map[string]interface{}{"run": newrun.InsertedID.(primitive.ObjectID).Hex()}
 	w.Header().Add("Content-Type", "application/json")
 	remote := []string{config.URL, "deploy", "ns", nsID, "run", newrun.InsertedID.(primitive.ObjectID).Hex()}
 	w.Header().Add("Location", strings.Join(remote, "/"))
